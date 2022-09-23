@@ -9,7 +9,7 @@ class PregeneratedMapLoader(MapLoader):
         self.files = os.listdir(dir)
         self.i = 0
 
-    def load_next(self):
+    def load_next(self, seed=None):
         map = np.load(f"{self.dir}/{self.files[self.i]}")
         self.i = (self.i + 1) % len(self.files)
         return map

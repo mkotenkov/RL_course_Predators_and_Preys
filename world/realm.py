@@ -51,8 +51,8 @@ class Realm:
                 s = 3 + int(max(0, self.team_scores[key[0]] - self.team_scores[value[0]])) * 0.1
             self.team_scores[value[0]] += s
 
-    def reset(self):
-        self.world.reset()
+    def reset(self, seed=None):
+        self.world.reset(seed)
         self.eaten = dict()
         self.actions = dict()
         self.done = False

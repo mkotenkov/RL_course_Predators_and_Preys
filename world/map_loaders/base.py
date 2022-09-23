@@ -4,7 +4,7 @@ import numpy as np
 
 class MapLoader:
     @abc.abstractmethod
-    def load_next(self):
+    def load_next(self, seed=None):
         pass
 
 
@@ -13,15 +13,15 @@ class MixedMapLoader(MapLoader):
         self.loaders = loaders
         self.i = 0
 
-    def load_next(self):
-        map = self.loaders[self.i].load_next()
+    def load_next(self, seed=None):
+        map = self.loaders[self.i].load_next(seed)
         self.i = (self.i + 1) % len(self.loaders)
         return map
 
 
 class StochasticMapLoader(MapLoader):
-    def load_next(self):
-        self.random = np.random.RandomState()
+    def load_next(self, seed=None):
+        self.random = np.random.RandomState(seed)
         map = self._generate()
         while map is None or not self.check_reachability(map):
             map = self._generate()

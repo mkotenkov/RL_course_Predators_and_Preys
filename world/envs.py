@@ -13,18 +13,20 @@ class OnePlayerEnv:
         info = {
             "eaten": copy.deepcopy(self.realm.eaten),
             "preys": copy.deepcopy([prey.get_state() for prey in self.realm.world.preys]),
-            "predators": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[0].values()])
+            "predators": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[0].values()]),
+            "scores": copy.deepcopy(self.realm.team_scores)
         }
         done = self.realm.done or len(self.realm.world.eaten_preys) == len(self.realm.world.preys)
         return state, done, info
 
-    def reset(self):
-        self.realm.reset()
+    def reset(self, seed=None):
+        self.realm.reset(seed)
         state = copy.deepcopy(self.realm.world.map)
         info = {
             "eaten": copy.deepcopy(self.realm.eaten),
             "preys": copy.deepcopy([prey.get_state() for prey in self.realm.world.preys]),
-            "predators": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[0].values()])
+            "predators": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[0].values()]),
+            "scores": copy.deepcopy(self.realm.team_scores)
         }
         return state, info
 
@@ -36,8 +38,8 @@ class VersusBotEnv(OnePlayerEnv):
         #done = self.realm.step_num >= self.realm.step_limit
         return state, done, info
 
-    def reset(self):
-        state, info = super().reset()
+    def reset(self, seed=None):
+        state, info = super().reset(seed)
         info["enemy"] = copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[1].values()])
         return state, info
 
@@ -58,8 +60,8 @@ class TwoPlayerEnv:
         state1, info1, state2, info2 = self._compute_states_and_infos()
         return (state1, done, info1), (state2, done, info2)
 
-    def reset(self):
-        self.realm.reset()
+    def reset(self, seed=None):
+        self.realm.reset(seed)
         state1, info1, state2, info2 = self._compute_states_and_infos()
         return (state1, info1), (state2, info2)
 
@@ -70,7 +72,8 @@ class TwoPlayerEnv:
             "eaten": copy.deepcopy(self.realm.eaten),
             "preys": copy.deepcopy([prey.get_state() for prey in self.realm.world.preys]),
             "predators": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[0].values()]),
-            "enemy": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[1].values()])
+            "enemy": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[1].values()]),
+            "scores": copy.deepcopy(self.realm.team_scores)
         }
         state2 = copy.deepcopy(np.transpose(state1, (1, 0, 2)))
         mask = copy.deepcopy(state2[:, :, 0])
@@ -81,6 +84,7 @@ class TwoPlayerEnv:
                             for (t1, i1), (t2, i2) in self.realm.eaten.items()]),
             "preys": copy.deepcopy([prey.get_state() for prey in self.realm.world.preys]),
             "predators": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[1].values()]),
-            "enemy": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[0].values()])
+            "enemy": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[0].values()]),
+            "scores": copy.deepcopy(list(reversed(self.realm.team_scores)))
         }
         return state1, info1, state2, info2
