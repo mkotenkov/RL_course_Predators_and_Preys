@@ -48,7 +48,7 @@ class Realm:
             if key[0] == self.world.playable_teams_num:
                 s = 1
             else:
-                s = 3 + int(max(0, self.team_scores[key[0]] - self.team_scores[value[0]])) * 0.1
+                s = 3 + int(max(0, self.team_scores[key[0]] - self.team_scores[value[0]])) * 0.25
             self.team_scores[value[0]] += s
 
     def reset(self, seed=None):

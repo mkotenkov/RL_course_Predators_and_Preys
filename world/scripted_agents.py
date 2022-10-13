@@ -92,3 +92,12 @@ class ClosestTargetAgent(ScriptedAgent):
         for j in range(coords_amount):
             self.action_map[j] = np.argmin(np.stack([self.distance_map[i] + 1 for i in indexes_helper[j]], axis=1),
                                            axis=1) + 1
+
+
+class BrokenClosestTargetAgent(ClosestTargetAgent):
+    def get_actions(self, state, team):
+        actions = super().get_actions(state, team)
+        for i in range(len(actions)):
+            if random.random() < 0.10:
+                actions[i] = 0
+        return actions
