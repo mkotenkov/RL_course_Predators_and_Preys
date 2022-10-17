@@ -5,7 +5,7 @@ from queue import PriorityQueue
 
 
 class TwoTeamMapLoader(StochasticMapLoader):
-    def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, spawn_attempts=20):
+    def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, spawn_attempts=30):
         self.size = size
         self.spawn_radius = spawn_radius
         self.spawn_points = spawn_points
@@ -13,9 +13,12 @@ class TwoTeamMapLoader(StochasticMapLoader):
         self.spawn_attempts = spawn_attempts
 
     def _generate(self):
+        generated = False
         map = np.zeros((self.size, self.size), int)
-        self._generate_rocks(map)
-        self._generate_entities(map)
+        while not generated:
+            map = np.zeros((self.size, self.size), int)
+            self._generate_rocks(map)
+            generated = self._generate_entities(map)
         mask = np.tri(self.size)
         other_part = (1 - mask) * map.T
         other_part[other_part == 1] = 2
@@ -33,27 +36,37 @@ class TwoTeamMapLoader(StochasticMapLoader):
         max_spawn_points = (map[spawn_shift_top:spawn_shift_top+spawn_radius-1,
                             spawn_shift_left:spawn_shift_left+spawn_radius-1] == 0).sum()
         for _ in range(max_spawn_points):
+            attempt = 0
             x, y = self.random.randint(0, spawn_radius), self.random.randint(0, spawn_radius)
             while map[spawn_shift_top+x][spawn_shift_left+y] != 0:
                 x, y = self.random.randint(0, spawn_radius), self.random.randint(0, spawn_radius)
+                attempt += 1
+                if attempt > self.spawn_attempts:
+                    return False
             map[spawn_shift_top + x, spawn_shift_left + y] = 1
         max_preys = min(self.preys_num, (map == 0).sum())
+
         for _ in range(max_preys):
             x = self.random.randint(0, self.size)
             y = self.random.randint(0, self.size)
             if x < y:
                 x, y = y, x
+            attempt = 0
             while map[x][y] != 0 or x == y:
                 x = self.random.randint(0, self.size)
                 y = self.random.randint(0, self.size)
                 if x < y:
                     x, y = y, x
+                attempt += 1
+                if attempt > self.spawn_attempts:
+                    return False
             map[x, y] = -2
+        return True
 
 
 class TwoTeamRocksMapLoader(TwoTeamMapLoader):
     def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, rock_spawn_proba=0.15,
-                 additional_rock_spawn_proba=0.2, spawn_attempts=20):
+                 additional_rock_spawn_proba=0.2, spawn_attempts=30):
         super().__init__(size, spawn_radius, preys_num, spawn_points, spawn_attempts)
         self.rock_spawn_proba = rock_spawn_proba
         self.additional_rock_spawn_proba = additional_rock_spawn_proba
@@ -75,7 +88,7 @@ class TwoTeamRocksMapLoader(TwoTeamMapLoader):
 
 class TwoTeamLabyrinthMapLoader(TwoTeamMapLoader):
     def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, additional_links_max=12,
-                 additional_links_min=0, spawn_attempts=20):
+                 additional_links_min=0, spawn_attempts=30):
         super().__init__(size, spawn_radius, preys_num, spawn_points, spawn_attempts)
         self.additional_links_max = additional_links_max
         self.additional_links_min = additional_links_min

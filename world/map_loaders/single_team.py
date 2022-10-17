@@ -5,7 +5,7 @@ from queue import PriorityQueue
 
 
 class SingleTeamMapLoader(StochasticMapLoader):
-    def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=15, spawn_attempts=20):
+    def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=15, spawn_attempts=30):
         self.size = size
         self.spawn_radius = spawn_radius
         self.spawn_points = spawn_points
@@ -13,9 +13,12 @@ class SingleTeamMapLoader(StochasticMapLoader):
         self.spawn_attempts = spawn_attempts
 
     def _generate(self):
+        generated = False
         map = np.zeros((self.size, self.size), int)
-        self._generate_rocks(map)
-        self._generate_entities(map)
+        while not generated:
+            map = np.zeros((self.size, self.size), int)
+            self._generate_rocks(map)
+            generated = self._generate_entities(map)
         return map
 
     @abc.abstractmethod
@@ -35,7 +38,7 @@ class SingleTeamMapLoader(StochasticMapLoader):
                 attempt += 1
                 x, y = self.random.randint(0, self.spawn_radius), self.random.randint(0, self.spawn_radius)
             if attempt > self.spawn_attempts:
-                return None
+                return False
             map[spawn_shift + x, spawn_shift + y] = 1
 
         for _ in range(self.preys_num):
@@ -47,13 +50,14 @@ class SingleTeamMapLoader(StochasticMapLoader):
                 attempt += 1
                 x, y = self.random.randint(0, self.size), self.random.randint(0, self.size)
             if attempt > self.spawn_attempts:
-                return None
+                return False
             map[x, y] = -2
+        return True
 
 
 class SingleTeamRocksMapLoader(SingleTeamMapLoader):
     def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, rock_spawn_proba=0.1,
-                 additional_rock_spawn_proba=0.2, spawn_attempts=20):
+                 additional_rock_spawn_proba=0.2, spawn_attempts=30):
         super().__init__(size, spawn_radius, preys_num, spawn_points, spawn_attempts)
         self.rock_spawn_proba = rock_spawn_proba
         self.additional_rock_spawn_proba = additional_rock_spawn_proba
@@ -77,7 +81,7 @@ class SingleTeamRocksMapLoader(SingleTeamMapLoader):
 
 class SingleTeamLabyrinthMapLoader(SingleTeamMapLoader):
     def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, additional_links_max=20,
-                 additional_links_min=0, spawn_attempts=20):
+                 additional_links_min=0, spawn_attempts=30):
         super().__init__(size, spawn_radius, preys_num, spawn_points, spawn_attempts)
         self.additional_links_max = additional_links_max
         self.additional_links_min = additional_links_min

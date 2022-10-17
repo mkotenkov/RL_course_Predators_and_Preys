@@ -124,5 +124,5 @@ class GridWorld:
                     if 0 < self.base_map[y, x] <= self.playable_teams_num:
                         self.team_spawn_coordinates[self.base_map[y, x]-1].append((x, y))  # Add Spawn point
                 else:
-                    raise f"Unknown value ({self.base_map[y, x]}) at {x}, {y}. Abort."
+                    raise Exception(f"Unknown value ({self.base_map[y, x]}) at {x}, {y}. Abort.")
 
