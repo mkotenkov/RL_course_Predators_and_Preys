@@ -90,5 +90,5 @@ class TwoPlayerEnv:
         for i in range(len(info2["predators"])):
             info2["predators"][i]["team"] = 0
         for i in range(len(info2["enemy"])):
-            info2["predators"][i]["team"] = 1
+            info2["enemy"][i]["team"] = 1
         return state1, info1, state2, info2
