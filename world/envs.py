@@ -52,7 +52,6 @@ class TwoPlayerEnv:
         self.realm.set_actions(actions1, 0)
         actions2 = [
             (5 - a if 0 < a <= 4 else a)
-            #((4 if a == 1 else (3 if a == 2 else (2 if a == 3 else 1))) if 0 < a <= 4 else a)
             for a in actions2
         ]
         self.realm.set_actions(actions2, 1)
@@ -89,6 +88,8 @@ class TwoPlayerEnv:
         }
         for i in range(len(info2["predators"])):
             info2["predators"][i]["team"] = 0
+            info2["predators"][i]["x"], info2["predators"][i]["y"] = info2["predators"][i]["y"], info2["predators"][i]["x"]
         for i in range(len(info2["enemy"])):
             info2["enemy"][i]["team"] = 1
+            info2["enemy"][i]["x"], info2["enemy"][i]["y"] = info2["enemy"][i]["y"], info2["enemy"][i]["x"]
         return state1, info1, state2, info2
