@@ -86,6 +86,8 @@ class TwoPlayerEnv:
             "enemy": copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[0].values()]),
             "scores": copy.deepcopy(list(reversed(self.realm.team_scores)))
         }
+        for i in range(len(info2["preys"])):
+            info2["preys"][i]["x"], info2["preys"][i]["y"] = info2["preys"][i]["y"], info2["preys"][i]["x"]
         for i in range(len(info2["predators"])):
             info2["predators"][i]["team"] = 0
             info2["predators"][i]["x"], info2["predators"][i]["y"] = info2["predators"][i]["y"], info2["predators"][i]["x"]
