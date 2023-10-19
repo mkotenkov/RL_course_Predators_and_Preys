@@ -12,12 +12,13 @@ class RenderedEnvWrapper:
         self.road_color = np.array((1., 1., 1.))
         self.stone_color = np.array((0.2, 0.2, 0.2))
         self.prey_color = np.array((0., 0.8, 0.))
+        self.bonus_color = np.array((0., 0.8, 0.8))
         self.team_colors = [
             np.array((0.8, 0., 0.)),
             np.array((0., 0., 0.8)),
             np.array((0.8, 0., 0.8)),
             np.array((0., 0.8, 0.8)),
-            np.array((0.8, 0.8, 0.))
+            np.array((0.8, 0.4, 0.4))
         ]
 
     def step(self, *args, **kwargs):
@@ -35,6 +36,7 @@ class RenderedEnvWrapper:
         frame = np.zeros(map.shape[:2])
         frame[np.logical_and(map[:, :, 0] == -1, map[:, :, 1] == 0)] = -1
         frame[np.logical_and(map[:, :, 0] == -1, map[:, :, 1] == -1)] = -2
+        frame[np.logical_and(map[:, :, 0] == -1, map[:, :, 1] == 1)] = -3
         for i in range(self.base_env.realm.world.playable_teams_num + 1):
             frame[map[:, :, 0] == i] = i
         return frame
@@ -46,6 +48,7 @@ class RenderedEnvWrapper:
             img = np.zeros((frame.shape[0], frame.shape[1], 3))
             img[frame == -1] = self.road_color
             img[frame == -2] = self.stone_color
+            img[frame == -3] = self.bonus_color
             for j in range(self.base_env.realm.world.playable_teams_num):
                 img[frame == j] = self.team_colors[j]
             img[frame == self.base_env.realm.world.playable_teams_num] = self.prey_color

@@ -1,10 +1,12 @@
-from world.grid_world import GridWorld
+from .grid_world import GridWorld
 import copy
 
 
 class Realm:
-    def __init__(self, map_loader, playable_teams_num, bots={}, playable_team_size=5, step_limit=300):
-        self.world = GridWorld(map_loader, playable_team_size, playable_teams_num)
+    def __init__(self, map_loader, playable_teams_num, bots={}, playable_team_size=5, step_limit=300,
+                 spawn_bonus_every=-1):
+        self.world = GridWorld(map_loader, playable_team_size, playable_teams_num,
+                               spawn_bonus_every=spawn_bonus_every)
         self.playable_teams_num = playable_teams_num
         self.bots = bots
         self.step_limit = step_limit

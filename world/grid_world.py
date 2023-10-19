@@ -4,7 +4,7 @@ from .entity import Entity
 
 
 class GridWorld:
-    def __init__(self, map_loader, playable_team_size, playable_teams_num):
+    def __init__(self, map_loader, playable_team_size, playable_teams_num, spawn_bonus_every=-1):
         self.map_loader = map_loader
         self.playable_team_size = playable_team_size
         self.playable_teams_num = playable_teams_num
@@ -14,8 +14,11 @@ class GridWorld:
         self.eaten_preys = set()
         self.preys = []
         self.actions = {}
+        self._steps = 0
+        self.spawn_bonus_every = spawn_bonus_every
 
     def step(self):
+        self._steps += 1
         # Predators move
         initiative = [(t, ent) for t in range(self.playable_teams_num) for ent in self.teams[t]]
         eaten = dict()
@@ -27,17 +30,26 @@ class GridWorld:
             ent = self.teams[i[0]][i[1]]
             x, y, tx, ty = self._action_coord_change(ent, action)
             if self.map[ty, tx][0] >= 0 and self.map[ty, tx][0] != i[0]:
-                eaten[tuple(self.map[ty, tx])] = i
                 if self.map[ty, tx][0] == self.playable_teams_num:
                     self.eaten_preys.add(tuple(self.map[ty, tx]))
                     self.preys[self.map[ty, tx][1]].alive = False
                 else:
-                    self.teams[self.map[ty, tx][0]][self.map[ty, tx][1]].alive = False
+                    other_ent = self.teams[self.map[ty, tx][0]][self.map[ty, tx][1]]
+                    if other_ent.bonus_count > 0:
+                        other_ent.bonus_count -= 1
+                        continue
+                    else:
+                        self.teams[self.map[ty, tx][0]][self.map[ty, tx][1]].alive = False
+
+                eaten[tuple(self.map[ty, tx])] = i
                 self.map[y, x] = np.array((-1, 0), dtype=np.long)
                 self.map[ty, tx] = np.array(i, dtype=np.long)
                 ent.x, ent.y = tx, ty
             else:
                 if self.map[ty, tx][0] == -1:
+                    if self.map[ty, tx][1] == 1:
+                        ent.bonus_count += 1
+                        self.map[ty, tx][1] = 0
                     if self.map[ty, tx][1] == 0:
                         self.map[y, x] = np.array((-1, 0), dtype=np.long)
                         self.map[ty, tx] = np.array(i, dtype=np.long)
@@ -58,6 +70,10 @@ class GridWorld:
         # Respawn predators
         for i in range(self.playable_teams_num):
             self._spawn_team(i)
+
+        if self.spawn_bonus_every > 0 and self._steps % self.spawn_bonus_every == 0:
+            self._spawn_bonus()
+
         return eaten
 
     def set_actions(self, team_idx2action):
@@ -74,6 +90,10 @@ class GridWorld:
         for i in range(self.playable_teams_num):
             self._spawn_team(i)
 
+        if self.spawn_bonus_every > 0:
+            for _ in range(self.playable_teams_num * self.playable_team_size):
+                self._spawn_bonus()
+
     def _action_coord_change(self, ent, action):
         x, y = ent.x, ent.y
         tx, ty = x, y
@@ -87,6 +107,14 @@ class GridWorld:
             ty = (y + 1) % self.map.shape[0]
         return x, y, tx, ty
 
+    def _spawn_bonus(self):
+        x, y = np.random.randint(0, self.map.shape[1]), np.random.randint(0, self.map.shape[0])
+        while self.map[y][x][0] != -1 or self.map[y][x][1] != 0:
+            x, y = np.random.randint(0, self.map.shape[1]), np.random.randint(0, self.map.shape[0])
+
+        self.map[y][x][0] = -1
+        self.map[y][x][1] = 1
+
     def _spawn_team(self, team):
         entities_for_respawn = [e for e in self.teams[team].values() if not e.alive]
         if len(entities_for_respawn) == 0:
@@ -99,6 +127,7 @@ class GridWorld:
             self.map[y, x] = np.array((team, e.idx))
             e.alive = True
             e.x, e.y = x, y
+            e.bonus_count = 0
             spawned += 1
         return spawned
 
@@ -124,5 +153,5 @@ class GridWorld:
                     if 0 < self.base_map[y, x] <= self.playable_teams_num:
                         self.team_spawn_coordinates[self.base_map[y, x]-1].append((x, y))  # Add Spawn point
                 else:
-                    raise Exception(f"Unknown value ({self.base_map[y, x]}) at {x}, {y}. Abort.")
+                    raise f"Unknown value ({self.base_map[y, x]}) at {x}, {y}. Abort."
 

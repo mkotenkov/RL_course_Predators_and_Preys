@@ -35,7 +35,6 @@ class VersusBotEnv(OnePlayerEnv):
     def step(self, actions):
         state, done, info = super().step(actions)
         info["enemy"] = copy.deepcopy([predator.get_state() for predator in self.realm.world.teams[1].values()])
-        #done = self.realm.step_num >= self.realm.step_limit
         return state, done, info
 
     def reset(self, seed=None):
