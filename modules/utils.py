@@ -1,3 +1,4 @@
+import random
 from world.envs import OnePlayerEnv, VersusBotEnv
 from world.realm import Realm
 from world.map_loaders.single_team import SingleTeamLabyrinthMapLoader, SingleTeamMapLoader, SingleTeamRocksMapLoader
@@ -105,7 +106,8 @@ def paint(logger, groups):
         plt.legend()
         plt.show()
 
-def get_env(n_predators, steps_done, step_limit, render_gif=False):
+def get_env(n_predators, difficulty, step_limit, render_gif=False):
+    assert 0 <= difficulty <= 1
     base = VersusBotEnv(Realm(
         map_loader=TwoTeamMapLoader(),
         playable_teams_num=2,
@@ -114,6 +116,37 @@ def get_env(n_predators, steps_done, step_limit, render_gif=False):
         step_limit=step_limit
     ))
     return RenderedEnvWrapper(base) if render_gif else base
+
+# def get_env(n_predators, difficulty, step_limit, render_gif=False):
+#     assert 0 <= difficulty <= 1
+
+#     if random.random() > 0.5:
+#         MapLoader = TwoTeamLabyrinthMapLoader
+#         kwargs_range = dict(
+#             additional_links_max=[24, 12],
+#             additional_links_min=[3, 1]
+#         )
+#     else:
+#         MapLoader = TwoTeamRocksMapLoader  
+#         kwargs_range = dict(
+#             rock_spawn_proba=[0.01, 0.15],
+#             additional_rock_spawn_proba=[0.0, 0.21]
+#         )
+    
+#     generation_kwargs = dict()
+#     for k, v in kwargs_range.items():
+#         value = v[0] + (v[1] - v[0]) * difficulty
+#         value = int(value) if MapLoader == TwoTeamLabyrinthMapLoader else value
+#         generation_kwargs[k] = value
+        
+#     base = VersusBotEnv(Realm(
+#         map_loader=MapLoader(**generation_kwargs),
+#         playable_teams_num=2,
+#         playable_team_size=n_predators,
+#         bots={1: ClosestTargetAgent()},
+#         step_limit=step_limit
+#     ))
+#     return RenderedEnvWrapper(base) if render_gif else base
 
 
     

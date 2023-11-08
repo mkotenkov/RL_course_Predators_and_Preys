@@ -79,7 +79,8 @@ class GridWorld:
     def set_actions(self, team_idx2action):
         self.actions.update(team_idx2action)
         for i in range(len(self.preys)):
-            self.actions[(self.playable_teams_num, self.preys[i].idx)] = self.random.randint(0, 4)
+            # self.actions[(self.playable_teams_num, self.preys[i].idx)] = self.random.randint(0, 4)
+            self.actions[(self.playable_teams_num, self.preys[i].idx)] = 0
 
     def reset(self, seed=None):
         self.actions.clear()

@@ -63,21 +63,28 @@ def get_text_info(r, reward, info, env):
              color=(150, 150, 150),
              thickness=2),
 
-        dict(text=f'd_prey_or_enemy: {round(r.dist_difference[0, 0], 2) if reward is not None else None}',
+        dict(text=f'd_prey_or_enemy: {int(r.dist_difference[0, 0]) if reward is not None else None}',
              position=(30, 50),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
              color=(200, 0, 0),
              thickness=2),
 
-        dict(text=f'd_teammate: {round(r.dist_difference[0, 1], 2) if reward is not None else None}',
+        dict(text=f'd_teammate: {int(r.dist_difference[0, 1]) if reward is not None else None}',
              position=(30, 100),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
              color=(200, 0, 0),
              thickness=2),
 
-        dict(text=f'kills:    {(round(r.kills[0, 0], 2), round(r.kills[0, 1], 2)) if reward is not None else None}',
+        dict(text=f'd_bonus:    {int(r.dist_difference[0, 2]) if reward is not None else None}',
+             position=(30, 150),
+             font_face=cv2.FONT_HERSHEY_SIMPLEX,
+             font_scale=0.7,
+             color=(200, 0, 0),
+             thickness=2),
+
+        dict(text=f'kills:    {r.kills[0] if reward is not None else None}',
              position=(30, 200),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
@@ -113,8 +120,8 @@ def create_video_from_gif(gif_path):
     ).run()
 
 
-def simulate_episode_and_create_gif(model, steps_done, n_predators, cfg, gif_path):
-    env = get_env(n_predators, steps_done, cfg.max_steps_for_episode, render_gif=True)
+def simulate_episode_and_create_gif(model, difficulty, n_predators, cfg, gif_path):
+    env = get_env(n_predators, difficulty, cfg.max_steps_for_episode, render_gif=True)
     state, info = env.reset()
     processed_state = preprocess(state, info)
     done = False
@@ -125,7 +132,7 @@ def simulate_episode_and_create_gif(model, steps_done, n_predators, cfg, gif_pat
         actions = model.get_actions(processed_state)
         next_state, done, next_info = env.step(actions)
         next_processed_state = preprocess(next_state, next_info)
-        reward = r(processed_state, next_processed_state, next_info)
+        reward = r(processed_state, info, next_processed_state, next_info)        
         info, processed_state = next_info, next_processed_state
         text_info.append(get_text_info(r, reward, next_info, env))  # for display
 

@@ -1,3 +1,4 @@
+import colorsys
 import numpy as np
 import copy
 import cv2
@@ -39,6 +40,7 @@ class RenderedEnvWrapper:
         frame[np.logical_and(map[:, :, 0] == -1, map[:, :, 1] == 1)] = -3
         for i in range(self.base_env.realm.world.playable_teams_num + 1):
             frame[map[:, :, 0] == i] = i
+        frame[np.logical_and(map[:, :, 0] == 0, map[:, :, 1] == 0)] = -4 # ADDED BY KOTENKOV
         return frame
 
     def render(self, dir="render", resize_factor=8):
@@ -52,6 +54,10 @@ class RenderedEnvWrapper:
             for j in range(self.base_env.realm.world.playable_teams_num):
                 img[frame == j] = self.team_colors[j]
             img[frame == self.base_env.realm.world.playable_teams_num] = self.prey_color
+            # ====== ADDED BY KOTENKOV ============================================================
+            rainbow_color = np.array(colorsys.hsv_to_rgb(i / 10, 1., 0.6)) 
+            img[frame == -4] = rainbow_color
+            # ====== ADDED BY KOTENKOV ============================================================
             img = img * 255
             img = cv2.resize(img, (int(img.shape[1] * resize_factor), int(img.shape[0] * resize_factor)),
                              interpolation=cv2.INTER_NEAREST)
