@@ -5,12 +5,13 @@ from queue import PriorityQueue
 
 
 class TwoTeamMapLoader(StochasticMapLoader):
-    def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, spawn_attempts=30):
+    def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, spawn_attempts=30, difficulty=1.):
         self.size = size
         self.spawn_radius = spawn_radius
         self.spawn_points = spawn_points
         self.preys_num = preys_num // 2
         self.spawn_attempts = spawn_attempts
+        self.difficulty = difficulty
 
     def _generate(self):
         generated = False
@@ -97,7 +98,7 @@ class TwoTeamLabyrinthMapLoader(TwoTeamMapLoader):
         cells = np.zeros((self.size // 4, self.size // 4, 4))
         expandable_cells = PriorityQueue()
         expandable_cells.put((self.random.rand(), (self.random.randint(0, self.size // 4),
-                                                  self.random.randint(0, self.size // 4))))
+                                                   self.random.randint(0, self.size // 4))))
         direction_helper = np.array([[1, 0], [0, 1], [0, -1], [-1, 0]])
 
         while expandable_cells.qsize() > 0:

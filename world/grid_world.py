@@ -6,6 +6,7 @@ from .entity import Entity
 class GridWorld:
     def __init__(self, map_loader, playable_team_size, playable_teams_num, spawn_bonus_every=-1):
         self.map_loader = map_loader
+        self.difficulty = self.map_loader.difficulty # added by Kotenkov !!!!!!!!!!!!!!!
         self.playable_team_size = playable_team_size
         self.playable_teams_num = playable_teams_num
         self.team_spawn_coordinates = [[] for _ in range(self.playable_teams_num)]
@@ -79,8 +80,13 @@ class GridWorld:
     def set_actions(self, team_idx2action):
         self.actions.update(team_idx2action)
         for i in range(len(self.preys)):
-            # self.actions[(self.playable_teams_num, self.preys[i].idx)] = self.random.randint(0, 4)
-            self.actions[(self.playable_teams_num, self.preys[i].idx)] = 0
+            # ===== added by Kotenkov ========================================================
+            if random.random() > self.difficulty:
+                self.actions[(self.playable_teams_num, self.preys[i].idx)] = 0                
+            else:
+                self.actions[(self.playable_teams_num, self.preys[i].idx)] = self.random.randint(0, 4)
+            # ===== added by Kotenkov ========================================================
+                
 
     def reset(self, seed=None):
         self.actions.clear()

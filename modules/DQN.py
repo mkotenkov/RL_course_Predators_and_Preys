@@ -1,10 +1,13 @@
 import copy
 import random
-from collections import deque
+from collections import deque, namedtuple
 
 import torch
 import torch.nn as nn
-from modules.utils import Transition
+
+
+Transition = namedtuple('Transition',
+                        ('state', 'action', 'next_state', 'reward', 'done'))
 
 
 class DQN(nn.Module):

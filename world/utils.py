@@ -55,8 +55,8 @@ class RenderedEnvWrapper:
                 img[frame == j] = self.team_colors[j]
             img[frame == self.base_env.realm.world.playable_teams_num] = self.prey_color
             # ====== ADDED BY KOTENKOV ============================================================
-            rainbow_color = np.array(colorsys.hsv_to_rgb(i / 10, 1., 0.6)) 
-            img[frame == -4] = rainbow_color
+            starred_color = np.array([0.8, 0., 0.4]) 
+            img[frame == -4] = starred_color
             # ====== ADDED BY KOTENKOV ============================================================
             img = img * 255
             img = cv2.resize(img, (int(img.shape[1] * resize_factor), int(img.shape[0] * resize_factor)),
