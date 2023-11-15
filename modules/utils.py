@@ -37,7 +37,7 @@ class TrainConfig:
     eps_end: float
     eps_decay: int
     tau: float
-    reward_weights: dict
+    reward_params: dict
     seed: int
 
     def __str__(self):
@@ -170,7 +170,7 @@ def simulate_episode(model, difficulty, n_predators, cfg, gif_path, render_gif=F
     state, info = env.reset()
     processed_state = preprocess(state, info)
     done = False
-    r = Reward(n_predators, cfg.reward_weights)
+    r = Reward(n_predators, cfg.reward_params)
     model.get_actions(processed_state, info)  # CHANGE
     text_info = [get_text_info(r, info, env, model.rewards)]
     # text_info = []
