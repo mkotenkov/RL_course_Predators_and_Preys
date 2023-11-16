@@ -43,6 +43,7 @@ class DQN(nn.Module):
         self.buffer = deque(maxlen=self.cfg.buffer_size)
         self.criterion = nn.SmoothL1Loss()
         self.optimizer = torch.optim.AdamW(self.dqn.parameters(), lr=self.cfg.learning_rate, amsgrad=True)
+        self.q_values = [None] * n_predators # used for display in gif
 
     def get_actions(self, processed_state, random=False):
         if random:
@@ -51,8 +52,8 @@ class DQN(nn.Module):
             # expects unbatched input: [self.n_predators, self.n_masks, self.map_size, self.map_size]
             with torch.no_grad():
                 # [self.n_predators, self.n_actions]
-                q_values = self.dqn(torch.FloatTensor(processed_state))
-                return q_values.argmax(dim=1)
+                self.q_values = self.dqn(torch.FloatTensor(processed_state))
+                return self.q_values.argmax(dim=1)
 
     def consume_transition(self, *args):
         self.buffer.append(Transition(*args))

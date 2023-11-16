@@ -9,14 +9,14 @@ Usage:
 
 регулировка duration не работает ))
 """
-from IPython.display import Image, display
 import ffmpy
-
 import os
 import shutil
 import imageio
 import numpy as np
 import cv2
+
+from modules.reward import RewardBasedModel
 
 
 def __extend_image_width(image: np.ndarray, width: int, color):
@@ -71,8 +71,9 @@ def create_video_from_gif(gif_path):
 
 def get_text_info(r, info, env, model):
     """r is Reward object"""
+    out = []
 
-    return [
+    out.extend([
         dict(text=f'step: {env.realm.step_num}',
              position=(330, 50),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
@@ -85,62 +86,105 @@ def get_text_info(r, info, env, model):
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
              color=(200, 200, 0),
-             thickness=2),
+             thickness=2)])
 
-     #    dict(text=f'E_rewards: {np.round(model.expected_info[0], 1) if len(model.expected_info) > 0 else None}',
-     #         position=(30, 150),
-     #         font_face=cv2.FONT_HERSHEY_SIMPLEX,
-     #         font_scale=0.7,
-     #         color=(200, 200, 0),
-     #         thickness=2),
+    if isinstance(model, RewardBasedModel):
+        out.extend([
+            dict(text=f'Expected rewards:',
+                 position=(30, 150),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
 
-        dict(text=f'left:    {round(model.expected_info["left"][0], 2) if len(model.expected_info) > 0 else None}',
-             position=(30, 150),
-             font_face=cv2.FONT_HERSHEY_SIMPLEX,
-             font_scale=0.7,
-             color=(0, 180, 180),
-             thickness=2),
+            dict(text=f'left:    {round(model.expected_info["left"][0], 2) if len(model.expected_info) > 0 else None}',
+                 position=(30, 175),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
 
-        dict(text=f'right:    {round(model.expected_info["right"][0], 2)if len(model.expected_info) > 0 else None}',
-             position=(30, 175),
-             font_face=cv2.FONT_HERSHEY_SIMPLEX,
-             font_scale=0.7,
-             color=(0, 180, 180),
-             thickness=2),
+            dict(text=f'right:    {round(model.expected_info["right"][0], 2)if len(model.expected_info) > 0 else None}',
+                 position=(30, 200),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
 
-        dict(text=f'up:    {round(model.expected_info["up"][0], 2)if len(model.expected_info) > 0 else None}',
-             position=(30, 200),
-             font_face=cv2.FONT_HERSHEY_SIMPLEX,
-             font_scale=0.7,
-             color=(0, 180, 180),
-             thickness=2),
+            dict(text=f'up:    {round(model.expected_info["up"][0], 2)if len(model.expected_info) > 0 else None}',
+                 position=(30, 225),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
 
-        dict(text=f'down:    {round(model.expected_info["down"][0], 2)if len(model.expected_info) > 0 else None}',
-             position=(30, 225),
-             font_face=cv2.FONT_HERSHEY_SIMPLEX,
-             font_scale=0.7,
-             color=(0, 180, 180),
-             thickness=2),
+            dict(text=f'down:    {round(model.expected_info["down"][0], 2)if len(model.expected_info) > 0 else None}',
+                 position=(30, 250),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
 
+        ])
+    else:
+        out.extend([
+            dict(text=f'Q values:',
+                 position=(30, 150),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
 
+            dict(text=f'left:    {round(model.q_values[0][2].item(), 2)}',
+                 position=(30, 175),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
+
+            dict(text=f'right:    {round(model.q_values[0][1].item(), 2)}',
+                 position=(30, 200),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
+
+            dict(text=f'up:    {round(model.q_values[0][3].item(), 2)}',
+                 position=(30, 225),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
+
+            dict(text=f'down:    {round(model.q_values[0][4].item(), 2)}',
+                 position=(30, 250),
+                 font_face=cv2.FONT_HERSHEY_SIMPLEX,
+                 font_scale=0.7,
+                 color=(0, 180, 180),
+                 thickness=2),
+        ])
+
+    out.extend([
         dict(text=f'kills:    {r.kills[0] if r.result is not None else None}',
-             position=(30, 300),
+             position=(30, 325),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
              color=(200, 0, 0),
              thickness=2),
 
         dict(text=f'reward: {round(r.result[0], 3) if r.result is not None else None}',
-             position=(30, 350),
+             position=(30, 375),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
              color=(200, 0, 200),
              thickness=2),
 
         dict(text=f'scores: {info["scores"]}',
-             position=(30, 400),
+             position=(30, 425),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
              color=(0, 200, 0),
              thickness=2),
-    ]
+    ])
+
+    return out

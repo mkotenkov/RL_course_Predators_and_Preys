@@ -18,6 +18,7 @@ from IPython.display import clear_output
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 from collections import defaultdict
+from scipy.ndimage import percentile_filter
 
 
 @dataclass
@@ -81,8 +82,8 @@ class Logger:
         self.data = defaultdict(list)
         for filename in os.listdir(path_to_folder):
             if filename.endswith('.npy'):
-                k = filename.split('.')[0]
-                self.data[k] = np.load(f'{path_to_folder}/{filename}').tolist()
+                k = filename.split('.')[0]                
+                self.data[k] = np.load(f'{path_to_folder}/{filename}', allow_pickle=True).tolist()
 
         # restore config
         with open(f'{path_to_folder}/config.txt', 'r') as f:
@@ -98,26 +99,53 @@ class Logger:
         return self
 
 
-def paint(logger, groups):
+def __smooth_array(arr, window_size):
+    return np.convolve(arr, np.ones(window_size) / window_size, mode='same')
+
+
+def __prepare_percintiles(arr, percentile, window_size):
+    return percentile_filter(arr, percentile, size=window_size)
+
+
+def paint(logger):
     clear_output(wait=True)
 
-    for group in groups:
-        for k, v in logger.data.items():
-            if k in group:
-                plt.plot(v, label=k)
-        plt.legend()
-        plt.show()
+    n = len(logger.data['reward_batch'])    
+    # low = __prepare_percintiles(logger.data['reward'], 25, 10)
+    # high = __prepare_percintiles(logger.data['reward'], 75, 10)
+    # smoothed_low = __smooth_array(low, min(n, 300))
+    # smoothed_high = __smooth_array(high, min(n, 300))
+    smoothed_reward = __smooth_array(logger.data['reward'], min(n, 300))
 
-# def get_env(n_predators, difficulty, step_limit, render_gif=False):
-#     assert 0 <= difficulty <= 1
-#     base = VersusBotEnv(Realm(
-#         map_loader=TwoTeamMapLoader(),
-#         playable_teams_num=2,
-#         playable_team_size=n_predators,
-#         bots={1: ClosestTargetAgent()},
-#         step_limit=step_limit
-#     ))
-#     return RenderedEnvWrapper(base) if render_gif else base
+    plt.figure(figsize=(14, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(logger.data['reward_batch'], label='reward_batch')  
+    plt.plot(smoothed_reward, label='smoothed_reward_per_step')  
+    # plt.fill_between(range(n), smoothed_low, smoothed_high, color='blue', alpha=0.2)
+    plt.title('Reward')
+    # plt.axis(ymin=smoothed_low.min() - 0.1, ymax=smoothed_high.max() + 0.1)
+    plt.xlabel('Steps')
+    plt.legend()
+    plt.grid()
+
+    plt.subplot(1, 2, 2)
+    plt.plot(logger.data['loss_batch'], label='loss_batch')
+    plt.xlabel('Steps')
+    plt.title('Loss')
+    plt.legend()
+    plt.grid()
+
+    plt.show()
+    
+    plt.figure(figsize=(9, 5))
+    plt.plot(logger.data['score_difference'], label='score_difference')
+    plt.xlabel('Steps')
+    plt.title('Avg of 5 episodes: \n score / (bot_score + score)')
+    plt.axhline(0.5, color='red', linestyle='--')
+    plt.legend()
+    plt.grid()
+
+    plt.show()
 
 
 def get_env(n_predators, difficulty, step_limit, render_gif=False):
@@ -172,14 +200,14 @@ def simulate_episode(model, difficulty, n_predators, cfg, gif_path=None, render_
     done = False
     r = Reward(n_predators, cfg.reward_params)
     text_info = [get_text_info(r, info, env, model)]
-        
-    while not done:    
+
+    while not done:
         actions = model.get_actions(processed_state, info)
         next_state, done, next_info = env.step(actions)
         next_processed_state = preprocess(next_state, next_info)
         reward = r(processed_state, info, next_processed_state, next_info)
         info, processed_state = next_info, next_processed_state
-        text_info.append(get_text_info(r, next_info, env, model))  # for display        
+        text_info.append(get_text_info(r, next_info, env, model))  # for display
 
     if render_gif and gif_path is not None:
         create_gif(env, gif_path, duration=1., text_info=text_info)
@@ -188,8 +216,9 @@ def simulate_episode(model, difficulty, n_predators, cfg, gif_path=None, render_
     sum_ = (info['scores'][0] + info['scores'][1])
     return (info['scores'][0] / sum_) if sum_ > 0 else None
 
+
 def evaluate(model, n_predators, cfg, n_episodes=5):
     results = []
-    for d in np.linspace(0, 1, n_episodes):              
+    for d in np.linspace(0, 1, n_episodes):
         results.append(simulate_episode(model, d, n_predators, cfg))
     return sum(results) / len(results)
