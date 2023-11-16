@@ -18,6 +18,7 @@ import imageio
 import numpy as np
 import cv2
 
+
 def __extend_image_width(image: np.ndarray, width: int, color):
     image_extended = np.ndarray((image.shape[0], image.shape[1] + width, image.shape[2]), dtype=image.dtype)
     image_extended[:, :image.shape[1]] = image
@@ -30,6 +31,7 @@ def __paint_text_on_image(image, text, position, font_face=cv2.FONT_HERSHEY_SIMP
     image_with_text = image.copy()
     cv2.putText(image_with_text, text, position, font_face, font_scale, color, thickness)
     return image_with_text
+
 
 def create_gif(wrapped_env, gif_path, duration, text_info, EXTRA_WIDTH=480):
     temp_path_name = 'temp_path'
@@ -54,10 +56,6 @@ def create_gif(wrapped_env, gif_path, duration, text_info, EXTRA_WIDTH=480):
     shutil.rmtree(temp_path_name)
 
 
-def create_and_display_gif(wrapped_env, gif_path, duration, text_info):
-    create_gif(wrapped_env, gif_path, duration, text_info)
-    display(Image(gif_path))
-
 def create_video_from_gif(gif_path):
     video_path = gif_path[:-4] + '.mp4'
 
@@ -70,44 +68,60 @@ def create_video_from_gif(gif_path):
         global_options='-loglevel quiet'
     ).run()
 
-def get_text_info(r, info, env, potential_rewards):
-    """r is Reward object"""        
+
+def get_text_info(r, info, env, model):
+    """r is Reward object"""
+
     return [
         dict(text=f'step: {env.realm.step_num}',
-             position=(300, 50),
+             position=(330, 50),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
-             color=(150, 150, 150),
+             color=(170, 170, 170),
              thickness=2),
 
-        dict(text=f'left:    {round(potential_rewards["left"][0], 2)}',
+        dict(text=f'bonus_count: {info["predators"][0]["bonus_count"]}',
+             position=(30, 100),
+             font_face=cv2.FONT_HERSHEY_SIMPLEX,
+             font_scale=0.7,
+             color=(200, 200, 0),
+             thickness=2),
+
+     #    dict(text=f'E_rewards: {np.round(model.expected_info[0], 1) if len(model.expected_info) > 0 else None}',
+     #         position=(30, 150),
+     #         font_face=cv2.FONT_HERSHEY_SIMPLEX,
+     #         font_scale=0.7,
+     #         color=(200, 200, 0),
+     #         thickness=2),
+
+        dict(text=f'left:    {round(model.expected_info["left"][0], 2) if len(model.expected_info) > 0 else None}',
              position=(30, 150),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
-             color=(200, 0, 0),
+             color=(0, 180, 180),
              thickness=2),
 
-        dict(text=f'right:    {round(potential_rewards["right"][0], 2)}',
+        dict(text=f'right:    {round(model.expected_info["right"][0], 2)if len(model.expected_info) > 0 else None}',
              position=(30, 175),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
-             color=(200, 0, 0),
+             color=(0, 180, 180),
              thickness=2),
 
-        dict(text=f'up:    {round(potential_rewards["up"][0], 2)}',
+        dict(text=f'up:    {round(model.expected_info["up"][0], 2)if len(model.expected_info) > 0 else None}',
              position=(30, 200),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
-             color=(200, 0, 0),
+             color=(0, 180, 180),
              thickness=2),
 
-        dict(text=f'down:    {round(potential_rewards["down"][0], 2)}',
+        dict(text=f'down:    {round(model.expected_info["down"][0], 2)if len(model.expected_info) > 0 else None}',
              position=(30, 225),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
-             color=(200, 0, 0),
+             color=(0, 180, 180),
              thickness=2),
-             
+
 
         dict(text=f'kills:    {r.kills[0] if r.result is not None else None}',
              position=(30, 300),
@@ -120,7 +134,7 @@ def get_text_info(r, info, env, potential_rewards):
              position=(30, 350),
              font_face=cv2.FONT_HERSHEY_SIMPLEX,
              font_scale=0.7,
-             color=(50, 0, 255),
+             color=(200, 0, 200),
              thickness=2),
 
         dict(text=f'scores: {info["scores"]}',
@@ -130,4 +144,3 @@ def get_text_info(r, info, env, potential_rewards):
              color=(0, 200, 0),
              thickness=2),
     ]
-

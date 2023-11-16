@@ -29,7 +29,7 @@ class TrainConfig:
     steps: int
     steps_per_update: int
     steps_per_paint: int
-    steps_per_gif: int
+    steps_per_eval: int
     buffer_size: int
     batch_size: int
     learning_rate: float
@@ -165,31 +165,31 @@ def get_env(n_predators, difficulty, step_limit, render_gif=False):
     return RenderedEnvWrapper(base) if render_gif else base
 
 
-def simulate_episode(model, difficulty, n_predators, cfg, gif_path, render_gif=False):
+def simulate_episode(model, difficulty, n_predators, cfg, gif_path=None, render_gif=False):
     env = get_env(n_predators, difficulty, cfg.max_steps_for_episode, render_gif=render_gif)
     state, info = env.reset()
     processed_state = preprocess(state, info)
     done = False
     r = Reward(n_predators, cfg.reward_params)
-    model.get_actions(processed_state, info)  # CHANGE
-    text_info = [get_text_info(r, info, env, model.rewards)]
-    # text_info = []
-
-    step = 0  # CHANGE
-    while not done:
-        # print('\r' + str(step), end='')  # CHANGE
-        actions = model.get_actions(processed_state, info)  # CHANGE
+    text_info = [get_text_info(r, info, env, model)]
+        
+    while not done:    
+        actions = model.get_actions(processed_state, info)
         next_state, done, next_info = env.step(actions)
         next_processed_state = preprocess(next_state, next_info)
         reward = r(processed_state, info, next_processed_state, next_info)
         info, processed_state = next_info, next_processed_state
-        text_info.append(get_text_info(r, next_info, env, model.rewards))  # for display
+        text_info.append(get_text_info(r, next_info, env, model))  # for display        
 
-        step += 1  # CHANGE
-
-    if render_gif:
+    if render_gif and gif_path is not None:
         create_gif(env, gif_path, duration=1., text_info=text_info)
         create_video_from_gif(gif_path)
 
     sum_ = (info['scores'][0] + info['scores'][1])
-    return (info['scores'][0] / sum_) if sum_ > 0 else 0
+    return (info['scores'][0] / sum_) if sum_ > 0 else None
+
+def evaluate(model, n_predators, cfg, n_episodes=5):
+    results = []
+    for d in np.linspace(0, 1, n_episodes):              
+        results.append(simulate_episode(model, d, n_predators, cfg))
+    return sum(results) / len(results)

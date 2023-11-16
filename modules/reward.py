@@ -1,16 +1,56 @@
-from collections import namedtuple, defaultdict
-from copy import deepcopy
+from queue import Queue
 import numpy as np
 
-Edge = namedtuple('Edge', (
-    'x_from', 'y_from',
-    'x_to', 'y_to',
-    'weight',
-))
+# ====== Helper functions for Reward and calc_expected_reward ===================
 
 
-def __get_weight_from_coordinates(x, y, reward_params, processed_state):
-    assert len(processed_state.shape) == 3, 'the shape must be: [N_MASKS, MAP_SIZE, MAP_SIZE]'
+def __get_adjacent_cells(x, y, obstacles_mask, distance_mask):
+    """Yields adjacent cells to (x, y) that are not obstacles and have not been visited"""
+    n, m = obstacles_mask.shape
+    for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+        nx = (x + dx) % m if x + dx >= 0 else m - 1
+        ny = (y + dy) % n if y + dy >= 0 else n - 1
+        if obstacles_mask[ny, nx] != 1 and np.isnan(distance_mask[ny, nx]):
+            yield (nx, ny)
+
+
+def __get_n_nearest_targets(processed_state, n, src):
+    """Returns list of tuples (x, y, dst) of n nearest targets 
+    or more if n nearest targets are bonuses or enemies"""
+    obstacles_mask, preys_mask, enemies_mask, bonuses_mask, _ = processed_state
+
+    out = []
+
+    queue = Queue()
+    queue.put(src)
+
+    distance_mask = np.empty_like(obstacles_mask, dtype=np.float32)
+    distance_mask.fill(np.nan)
+    distance_mask[src[1], src[0]] = 0
+
+    contains_preys = False
+
+    while not queue.empty():
+        x, y = queue.get()
+
+        for nx, ny in __get_adjacent_cells(x, y, obstacles_mask, distance_mask):
+            queue.put((nx, ny))
+            distance_mask[ny, nx] = distance_mask[y, x] + 1
+
+            if preys_mask[ny, nx] == 1:
+                contains_preys = True
+                out.append((nx, ny, distance_mask[ny, nx]))
+
+            if (enemies_mask[ny, nx] == 1 or bonuses_mask[ny, nx] == 1) and len(out) < n:
+                out.append((nx, ny, distance_mask[ny, nx]))
+
+            if len(out) >= n and contains_preys:
+                return out
+
+    return out
+
+
+def __get_weight_from_coordinates(x, y, reward_params, processed_state, bonus_count):
     _, preys_mask, enemies_mask, bonuses_mask, _ = processed_state
 
     if preys_mask[y, x] == 1:
@@ -18,68 +58,196 @@ def __get_weight_from_coordinates(x, y, reward_params, processed_state):
     if enemies_mask[y, x] == 1:
         return reward_params["w_kill_enemy"]
     if bonuses_mask[y, x] == 1:
-        return reward_params["w_kill_bonus"]
+        return reward_params["w_kill_bonus"] * (reward_params['gamma_for_bonus_count'] ** bonus_count)
 
-    return reward_params["w_dummy_step_start"]
+    return 0
 
 
-def __get_adjacent_cells(x, y, reward_params, processed_state, can_pass_edges=True):
-    assert len(processed_state.shape) == 3, 'the shape must be: [N_MASKS, MAP_SIZE, MAP_SIZE]'
-    stones_mask = processed_state[0, ...]
-    n, m = stones_mask.shape
+def __get_target_density(processed_state, x, y, reward_params, area=11):
+    obstacles_mask, _, _, bonuses_mask, _ = processed_state
+    penalties = np.linspace(1, 0, area)
+    density = 0
+
+    queue = Queue()
+    queue.put((x, y))
+
+    distance_mask = np.empty_like(obstacles_mask, dtype=np.float32)
+    distance_mask.fill(np.nan)
+    distance_mask[y, x] = 0
+
+    curr_dst = 0
+    bonus_count = 0
+    while not queue.empty():
+        x, y = queue.get()
+        density += penalties[int(distance_mask[y, x])] * __get_weight_from_coordinates(x,
+                                                                                       y, reward_params, processed_state, bonus_count)
+        bonus_count += int(bonuses_mask[y, x])
+
+        for nx, ny in __get_adjacent_cells(x, y, obstacles_mask, distance_mask):
+            queue.put((nx, ny))
+            distance_mask[ny, nx] = distance_mask[y, x] + 1
+            curr_dst = max(curr_dst, distance_mask[ny, nx])
+
+        if curr_dst >= area:
+            return density
+
+    return density
+
+
+def __get_n_nearest_target_values(processed_state, reward_params, src):
+    """Returns list of tuples (x, y, dst, target_value) of n nearest targets 
+    or more if n nearest targets are bonuses or enemies"""
+    n_nearest_targets = __get_n_nearest_targets(processed_state, reward_params['n_nearest_targets'], src)
     out = []
-    for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-        if can_pass_edges:
-            nx = (x + dx) % m if x + dx >= 0 else m - 1
-            ny = (y + dy) % n if y + dy >= 0 else n - 1
-        else:
-            nx = (x + dx)
-            ny = (y + dy)
-            if not 0 <= nx < m or not 0 <= ny < n:
-                continue
 
-        if stones_mask[ny, nx] != 1:
-            out.append((nx, ny,
-                        __get_weight_from_coordinates(nx, ny, reward_params, processed_state)))
+    for x, y, dst in n_nearest_targets:
+        target_density = __get_target_density(processed_state, x, y, reward_params)
+        target_value = target_density / dst
+        out.append((x, y, dst, target_value))
+
     return out
 
 
-def create_graph(reward_params, processed_state, can_pass_edges=True):
-    assert len(processed_state.shape) == 3, 'the shape must be: [N_MASKS, MAP_SIZE, MAP_SIZE]'
-    stones_mask = processed_state[0, ...]
-    graph = []
-    for y in range(stones_mask.shape[0]):
-        for x in range(stones_mask.shape[1]):
-            for x2, y2, w in __get_adjacent_cells(x, y, reward_params, processed_state, can_pass_edges):
-                graph.append(Edge(x, y, x2, y2, w))
-    return graph
+def get_best_target_distance(processed_state, reward_params, src=(20, 20)):
+    n_nearest_target_values = __get_n_nearest_target_values(processed_state, reward_params, src)
+    highest_target_value = float('-inf')
+    best_target_distance = None  # dst to target with highest value
+
+    for *_, dst, target_value in n_nearest_target_values:
+        if target_value > highest_target_value:
+            highest_target_value = target_value
+            best_target_distance = dst
+
+    return best_target_distance
+
+# ====== Expected reward (not used for training) ================================
 
 
-def BellamanFord_modified(graph, reward_params, src, shape=(40, 40)):
-    """kostyl in for loop"""
-    D = [[float('-Inf')] * shape[1] for _ in range(shape[0])]  # distances
-    D[src[1]][src[0]] = 0  # initialize distance of source as 0
+def __get_expected_bonus_counts(processed_state, bonus_counts, dx, dy, src=(20, 20)):
+    """helper function for calc_expected_reward"""
+    expected_bonus_counts = bonus_counts.copy()
 
-    Used = defaultdict(set)
+    for i, pr_st in enumerate(processed_state):
+        _, _, enemies_mask, bonuses_mask, _ = pr_st
 
-    for dummy_step_weight in np.linspace(
-        reward_params['w_dummy_step_start'], reward_params['w_dummy_step_end'], reward_params['split_step']):
-        D_tmp = deepcopy(D)
-        for e in graph:
-            weight = dummy_step_weight if (e.x_to, e.y_to) in Used[(e.x_from, e.y_from)] else e.weight
-            weight = dummy_step_weight if weight < 0 else weight
+        nx, ny = src[0] + dx, src[1] + dy
 
-            if D[e.y_from][e.x_from] + weight > D_tmp[e.y_to][e.x_to]:
-                D_tmp[e.y_to][e.x_to] = D[e.y_from][e.x_from] + weight
+        if enemies_mask[ny, nx] == 1:
+            expected_bonus_counts[i] -= 1
+        if bonuses_mask[ny, nx] == 1:
+            expected_bonus_counts[i] += 1
 
-                Used[(e.x_to, e.y_to)] = Used[(e.x_from, e.y_from)].copy()
+    return expected_bonus_counts
 
-                if weight > 0:
-                    Used[(e.x_to, e.y_to)].add((e.x_to, e.y_to))
 
-        D = deepcopy(D_tmp)
+def __get_expected_kills(processed_state, dx, dy, src=(20, 20)):
+    """helper function for calc_expected_reward"""
+    n_predators = processed_state.shape[0]
+    expected_kills = np.zeros((n_predators, 3))
 
-    return np.array(D)
+    for i, pr_st in enumerate(processed_state):
+        _, preys_mask, enemies_mask, bonuses_mask, _ = pr_st
+
+        nx, ny = src[0] + dx, src[1] + dy
+
+        if preys_mask[ny, nx] == 1:
+            expected_kills[i, 0] = 1
+        if enemies_mask[ny, nx] == 1:
+            expected_kills[i, 1] = 1
+        if bonuses_mask[ny, nx] == 1:
+            expected_kills[i, 2] = 1
+
+    return expected_kills
+
+
+def __get_actual_params(reward_params, bonus_count):
+    """helper function for calc_expected_reward"""
+    params = reward_params.copy()
+    params["w_kill_bonus"] = params["w_kill_bonus"] * (params['gamma_for_bonus_count'] ** bonus_count)
+    params["w_kill_enemy"] = params["w_kill_enemy"] if bonus_count > 0 else 0
+    return params
+
+
+def __get_expected_distances(processed_state, reward_params, bonus_counts, src=(20, 20), dx=0, dy=0):
+    """helper function for calc_expected_reward"""
+    result = []
+
+    for i, pr_st in enumerate(processed_state):
+        params = __get_actual_params(reward_params, bonus_counts[i])
+        nx, ny = src[0] + dx, src[1] + dy
+        result.append(get_best_target_distance(pr_st, params, src=(nx, ny)))
+
+    result = [x if x is not None else np.nan for x in result]
+    return np.array(result)
+
+
+def __get_actual_kill_weights(bonus_counts, reward_params, n_predators):
+    """helper function for calc_expected_reward"""
+    kill_weights = np.empty((n_predators, 3), dtype=np.float32)
+
+    for i in range(n_predators):
+        params = __get_actual_params(reward_params, bonus_counts[i])
+        kill_weights[i, 0] = params['w_kill_prey']
+        kill_weights[i, 1] = params['w_kill_enemy']
+        kill_weights[i, 2] = params['w_kill_bonus']
+
+    return kill_weights
+
+
+def __goes_to_obstacle(processed_state, dx, dy, src=(20, 20)):
+    """helper function for calc_expected_reward"""
+    goes_to_obstacle = np.zeros(processed_state.shape[0])
+
+    for i, pr_st in enumerate(processed_state):
+        obstacles_mask, *_ = pr_st
+
+        nx, ny = src[0] + dx, src[1] + dy
+
+        if obstacles_mask[ny, nx] == 1:
+            goes_to_obstacle[i] = 1
+
+    return goes_to_obstacle
+
+
+def calc_expected_reward(processed_state, info, reward_params, dx, dy, max_dist_change=2):
+    """This function can be used for RewardBasedModel dedicated to check quality of reward system"""
+    bonus_counts = get_bonus_counts(info)
+    next_bonus_counts = __get_expected_bonus_counts(processed_state, bonus_counts, dx, dy)
+    distances = __get_expected_distances(processed_state, reward_params, bonus_counts)
+    next_distances = __get_expected_distances(processed_state, reward_params, next_bonus_counts, dx=dx, dy=dy)
+
+    # in some rare cases some of distances can be NaN
+    isnan = np.logical_or(np.isnan(distances), np.isnan(next_distances))
+    distances[isnan] = 0
+    next_distances[isnan] = 0
+
+    dist_difference = next_distances - distances
+
+    excepted_kills = __get_expected_kills(processed_state, dx, dy)
+
+    # set distances to 0 if killed
+    killed_anybody = np.logical_or(excepted_kills[:, 0] == 1, excepted_kills[:, 1] == 1, excepted_kills[:, 2] == 1)
+    dist_difference[killed_anybody == 1] = 0
+
+    # set distances to 0 if sudden change
+    sudden_change = np.logical_or(dist_difference > max_dist_change, dist_difference < -max_dist_change)
+    dist_difference[sudden_change] = 0
+
+    # set distances to 0 if goes to obstacle
+    goes_to_obstacle = __goes_to_obstacle(processed_state, dx, dy)
+    dist_difference[goes_to_obstacle == 1] = 0
+
+    # clip to [-1, 1] because agent cannot control 1 -> 2 or -2 -> -1
+    dist_difference = np.clip(dist_difference, -1, 1)
+
+    kill_weights = __get_actual_kill_weights(bonus_counts, reward_params, processed_state.shape[0])
+
+    result = dist_difference * reward_params['w_dist_change'] + \
+        np.sum(excepted_kills * kill_weights, axis=1)
+
+    return result
+
+# ====== Reward =================================================================
 
 
 def get_bonus_counts(info):
@@ -109,92 +277,94 @@ def get_kills(info, next_info):
     return prey_kills, enemy_kills, bonus_kills
 
 
-# def get_state_value(reward_weights, processed_state, info, n_steps=7, src=(20, 20)):
-#     """Returns ndarray[N_PREDATORS] containing state value for each predator"""
-#     assert len(processed_state.shape) == 4, 'the shape must be: [N_PREDATORS, N_MASKS, MAP_SIZE, MAP_SIZE]'
-#     n_predators = processed_state.shape[0]
-#     bonus_counts = get_bonus_counts(info)
-
-#     out = []
-#     for i in range(n_predators):
-#         weights = reward_weights.copy()
-#         weights["w_kill_bonus"] = weights["w_kill_bonus"] * (0.5 ** bonus_counts[i])
-#         weights["w_kill_enemy"] = weights["w_kill_enemy"] if bonus_counts[i] > 0 else 0
-#         graph = __create_graph(weights, processed_state[i, ...])
-
-#         state_value = BellamanFord_modified(graph, n_steps, reward_weights, src).max()
-
-#         out.append(state_value)
-#     return np.array(out)
-
-# =============================================================================
-def get_state_value(reward_params, processed_state, info, src=(20, 20)):
-    """Returns ndarray[N_PREDATORS] containing state value for each predator
-    generally state value is the maximum dst calculated with modified BellamanFord algorithm
-    But if it is zero, sv is calculated with another function"""
-    assert len(processed_state.shape) == 4, 'the shape must be: [N_PREDATORS, N_MASKS, MAP_SIZE, MAP_SIZE]'
-    n_predators = processed_state.shape[0]
-    bonus_counts = get_bonus_counts(info)
-
-    out = []
-    for i in range(n_predators):
-        params = reward_params.copy()
-        params["w_kill_bonus"] = params["w_kill_bonus"] * (0.5 ** bonus_counts[i])
-        params["w_kill_enemy"] = params["w_kill_enemy"] if bonus_counts[i] > 0 else 0
-
-        graph = create_graph(params, processed_state[i, ...])
-
-        state_value = BellamanFord_modified(graph, params, src).max()
-
-        if state_value == 0:
-            state_value = get_alternative_state_value(params, processed_state[i, ...])
-
-        out.append(state_value)
-    return np.array(out)
-
-
-def get_reward_mask(processed_state, reward_params):
-    assert len(processed_state.shape) == 3, 'the shape must be: [N_MASKS, MAP_SIZE, MAP_SIZE]'
-    stones_mask, preys_mask, enemies_mask, bonuses_mask, _ = processed_state
-    reward_mask = np.zeros_like(stones_mask)
-    reward_mask[preys_mask == 1] = reward_params['w_kill_prey']
-    reward_mask[enemies_mask == 1] = reward_params['w_kill_enemy']
-    reward_mask[bonuses_mask == 1] = reward_params['w_kill_bonus']
-    return reward_mask
-
-
-def get_alternative_state_value(reward_params, processed_state):
-    assert len(processed_state.shape) == 3, 'the shape must be: [N_MASKS, MAP_SIZE, MAP_SIZE]'
-    *_, distance_mask = processed_state
-    reward_mask = get_reward_mask(processed_state, reward_params)
-    weighted_reward_mask = reward_mask * (1 - distance_mask)
-    return np.sum(weighted_reward_mask)
-# =============================================================================
-
-
 class Reward:
-    def __init__(self, n_predators, reward_params):
-        w_kill_prey, w_kill_enemy, w_kill_bonus = reward_params['w_kill_prey'], reward_params['w_kill_enemy'], reward_params['w_kill_bonus']
-        self.reward_weights = reward_params
+    def __init__(self, n_predators, reward_params, max_dist_change=2):
+        self.max_dist_change = max_dist_change
         self.n_predators = n_predators
-        self.kill_weights = np.array([w_kill_prey, w_kill_enemy, w_kill_bonus])
+        self.reward_params = reward_params
 
+        self.dist_difference = None
         self.kills = None
         self.result = None
 
     def __call__(self, processed_state, info, next_processed_state, next_info):
+        bonus_counts = get_bonus_counts(info)
+        next_bonus_counts = get_bonus_counts(next_info)
+        distances = self.__get_distances(processed_state, bonus_counts)
+        next_distances = self.__get_distances(next_processed_state, next_bonus_counts)
+
+        # in some rare cases some of distances can be NaN
+        isnan = np.logical_or(np.isnan(distances), np.isnan(next_distances))
+        distances[isnan] = 0
+        next_distances[isnan] = 0
+
+        self.dist_difference = next_distances - distances
+
         prey_kills, enemy_kills, bonus_kills = get_kills(info, next_info)
         self.kills = np.array([prey_kills, enemy_kills, bonus_kills]).transpose()
 
-        self.state_value = get_state_value(self.reward_weights, processed_state, info)
-        self.next_state_value = get_state_value(self.reward_weights, next_processed_state, next_info)
-        self.sv_difference = self.next_state_value - self.state_value
-
-        # set sv_difference to 0 if killed
+        # set distances to 0 if killed
         killed_anybody = np.logical_or(prey_kills, enemy_kills, bonus_kills)
-        cond = np.logical_and(killed_anybody == 1, self.sv_difference < 0)
-        self.sv_difference[cond] = 0
+        self.dist_difference[killed_anybody == 1] = 0
 
-        self.result = self.sv_difference + self.kills @ self.kill_weights
+        # set distances to 0 if sudden change.
+        # This means that state drastically changed without actions of the agent.
+        # Example_1: Enemy ate the prey which was the closest one
+        # Example_2: respawned
+        sudden_change = np.logical_or(self.dist_difference > self.max_dist_change,
+                                      self.dist_difference < -self.max_dist_change)
+        self.dist_difference[sudden_change] = 0
+
+        # clip to [-1, 1] because agent cannot control 1 -> 2 or -2 -> -1
+        self.dist_difference = np.clip(self.dist_difference, -1, 1)
+
+        kill_weights = self.__get_actual_kill_weights(bonus_counts)
+
+        self.result = self.dist_difference * self.reward_params['w_dist_change'] + \
+            np.sum(self.kills * kill_weights, axis=1)
 
         return self.result
+
+    def __get_distances(self, processed_state, bonus_counts):
+        result = []
+
+        for i, pr_st in enumerate(processed_state):
+            params = self.__get_actual_params(bonus_counts[i])
+            result.append(get_best_target_distance(pr_st, params))
+
+        return np.array([x if x is not None else np.nan for x in result])
+
+    def __get_actual_params(self, bonus_count):
+        params = self.reward_params.copy()
+        params["w_kill_bonus"] = params["w_kill_bonus"] * (params['gamma_for_bonus_count'] ** bonus_count)
+        params["w_kill_enemy"] = params["w_kill_enemy"] if bonus_count > 0 else 0
+        return params
+
+    def __get_actual_kill_weights(self, bonus_counts):
+        kill_weights = np.empty((self.n_predators, 3), dtype=np.float32)
+
+        for i in range(self.n_predators):
+            params = self.__get_actual_params(bonus_counts[i])
+            kill_weights[i, 0] = params['w_kill_prey']
+            kill_weights[i, 1] = params['w_kill_enemy']
+            kill_weights[i, 2] = params['w_kill_bonus']
+
+        return kill_weights
+
+
+# ===============================================================================
+
+class RewardBasedModel:
+    def __init__(self, reward_params):
+        self.reward_params = reward_params
+        self.expected_info = dict()
+
+    def get_actions(self, processed_state, info):
+        expected_rewards = []
+        for name, dx, dy in [("right", 1, 0), ("left", -1, 0), ("up", 0, -1), ("down", 0, 1)]:
+            expected_reward = calc_expected_reward(processed_state, info, self.reward_params, dx, dy)
+            expected_rewards.append(expected_reward)
+            self.expected_info[name] = expected_reward
+        self.expected_rewards = np.stack(expected_rewards).transpose()
+        out = np.argmax(self.expected_rewards, axis=1) + 1
+        return out
