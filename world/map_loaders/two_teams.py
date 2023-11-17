@@ -5,13 +5,13 @@ from queue import PriorityQueue
 
 
 class TwoTeamMapLoader(StochasticMapLoader):
-    def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, spawn_attempts=30, difficulty=1.):
+    def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, spawn_attempts=30, move_proba=1.):
         self.size = size
         self.spawn_radius = spawn_radius
         self.spawn_points = spawn_points
         self.preys_num = preys_num // 2
         self.spawn_attempts = spawn_attempts
-        self.difficulty = difficulty
+        self.move_proba = move_proba
 
     def _generate(self):
         generated = False
@@ -67,10 +67,11 @@ class TwoTeamMapLoader(StochasticMapLoader):
 
 class TwoTeamRocksMapLoader(TwoTeamMapLoader):
     def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, rock_spawn_proba=0.15,
-                 additional_rock_spawn_proba=0.2, spawn_attempts=30):
+                 additional_rock_spawn_proba=0.2, spawn_attempts=30, move_proba=1.):
         super().__init__(size, spawn_radius, preys_num, spawn_points, spawn_attempts)
         self.rock_spawn_proba = rock_spawn_proba
         self.additional_rock_spawn_proba = additional_rock_spawn_proba
+        self.move_proba = move_proba
 
     def _generate_rocks(self, map):
         prev_rocks = np.zeros((self.size, self.size))
@@ -89,10 +90,11 @@ class TwoTeamRocksMapLoader(TwoTeamMapLoader):
 
 class TwoTeamLabyrinthMapLoader(TwoTeamMapLoader):
     def __init__(self, size=40, spawn_radius=8, preys_num=100, spawn_points=10, additional_links_max=12,
-                 additional_links_min=0, spawn_attempts=30):
+                 additional_links_min=0, spawn_attempts=30, move_proba=1.):
         super().__init__(size, spawn_radius, preys_num, spawn_points, spawn_attempts)
         self.additional_links_max = additional_links_max
         self.additional_links_min = additional_links_min
+        self.move_proba = move_proba
 
     def _generate_rocks(self, map):
         cells = np.zeros((self.size // 4, self.size // 4, 4))

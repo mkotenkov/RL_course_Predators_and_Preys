@@ -1,14 +1,12 @@
-from world.envs import OnePlayerEnv, VersusBotEnv
+from world.envs import VersusBotEnv
 from world.realm import Realm
-from world.map_loaders.single_team import SingleTeamLabyrinthMapLoader, SingleTeamMapLoader, SingleTeamRocksMapLoader
 from world.map_loaders.two_teams import TwoTeamLabyrinthMapLoader, TwoTeamMapLoader, TwoTeamRocksMapLoader
-from world.scripted_agents import ClosestTargetAgent, Dummy
+from world.scripted_agents import ClosestTargetAgent
 from world.utils import RenderedEnvWrapper
 
-from modules.create_nice_gif import create_gif, get_text_info, create_video_from_gif
+from modules.create_gif import create_gif, get_text_info, create_video_from_gif
 from modules.preprocess import preprocess
 from modules.reward import Reward
-
 
 import os
 import random
@@ -18,7 +16,16 @@ from IPython.display import clear_output
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 from collections import defaultdict
-from scipy.ndimage import percentile_filter
+from copy import deepcopy
+
+
+@dataclass
+class GlobalConfig:
+    device: str
+    n_actions: int
+    n_predators: int
+    n_masks: int
+    map_size: int
 
 
 @dataclass
@@ -46,9 +53,10 @@ class TrainConfig:
 
 
 class Logger:
-    def __init__(self, config, path_to_general_folder='logs'):
+    def __init__(self, config, model, path_to_general_folder='logs'):
         self.data = defaultdict(list)
         self.config = config
+        self.model = model
         self.path_to_general_folder = path_to_general_folder
 
         os.makedirs(self.path_to_general_folder, exist_ok=True)
@@ -69,6 +77,8 @@ class Logger:
             np.save(f'{self.curr_subfolder_path}/{k}.npy', np.array(v))
         with open(f'{self.curr_subfolder_path}/config.txt', 'w') as f:
             f.write(str(self.config))
+        with open(f'{self.curr_subfolder_path}/architecture.txt', 'w') as f:
+            f.write(str(self.model.dqn))
 
     @classmethod
     def load(cls, path_to_folder):
@@ -82,7 +92,7 @@ class Logger:
         self.data = defaultdict(list)
         for filename in os.listdir(path_to_folder):
             if filename.endswith('.npy'):
-                k = filename.split('.')[0]                
+                k = filename.split('.')[0]
                 self.data[k] = np.load(f'{path_to_folder}/{filename}', allow_pickle=True).tolist()
 
         # restore config
@@ -100,43 +110,37 @@ class Logger:
 
 
 def __smooth_array(arr, window_size):
-    return np.convolve(arr, np.ones(window_size) / window_size, mode='same')
+    size = len(arr) - 1 if len(arr) < window_size else window_size
+    return np.convolve(arr, np.ones(size) / size, mode='valid')
 
-
-def __prepare_percintiles(arr, percentile, window_size):
-    return percentile_filter(arr, percentile, size=window_size)
-
-
-def paint(logger):
+def paint(logger, save_plots=False, reward_window=1000, loss_window=100):
     clear_output(wait=True)
 
-    n = len(logger.data['reward_batch'])    
-    # low = __prepare_percintiles(logger.data['reward'], 25, 10)
-    # high = __prepare_percintiles(logger.data['reward'], 75, 10)
-    # smoothed_low = __smooth_array(low, min(n, 300))
-    # smoothed_high = __smooth_array(high, min(n, 300))
-    smoothed_reward = __smooth_array(logger.data['reward'], min(n, 300))
+    n = len(logger.data['reward'])
+
+    smoothed_reward_per_step = __smooth_array(logger.data['reward'], min(n, reward_window))
+    smoothed_loss = __smooth_array(logger.data['loss'], min(n, loss_window))
 
     plt.figure(figsize=(14, 5))
     plt.subplot(1, 2, 1)
-    plt.plot(logger.data['reward_batch'], label='reward_batch')  
-    plt.plot(smoothed_reward, label='smoothed_reward_per_step')  
-    # plt.fill_between(range(n), smoothed_low, smoothed_high, color='blue', alpha=0.2)
+    plt.plot(smoothed_reward_per_step, label=f'smoothed_reward_per_step ({reward_window})')
     plt.title('Reward')
-    # plt.axis(ymin=smoothed_low.min() - 0.1, ymax=smoothed_high.max() + 0.1)
     plt.xlabel('Steps')
     plt.legend()
     plt.grid()
 
     plt.subplot(1, 2, 2)
-    plt.plot(logger.data['loss_batch'], label='loss_batch')
+    plt.plot(smoothed_loss, label=f'smoothed_loss ({loss_window})')
     plt.xlabel('Steps')
     plt.title('Loss')
     plt.legend()
     plt.grid()
 
+    if save_plots:
+        plt.savefig(logger.curr_subfolder_path + '/reward_loss.png')
+
     plt.show()
-    
+
     plt.figure(figsize=(9, 5))
     plt.plot(logger.data['score_difference'], label='score_difference')
     plt.xlabel('Steps')
@@ -145,37 +149,39 @@ def paint(logger):
     plt.legend()
     plt.grid()
 
+    if save_plots:
+        plt.savefig(logger.curr_subfolder_path + '/score_difference.png')
+
     plt.show()
 
+def get_env(global_config, train_config, difficulty, render_gif=False):
+    assert 0 <= difficulty <= 1
 
-def get_env(n_predators, difficulty, step_limit, render_gif=False):
-    """
-    -with difficulty from -1 to 0: returns map without rocks 
-    and gradually increases number of moving preys
+    plain_map_proba = 1 - difficulty if difficulty > 0.15 else 1
+    probs = [plain_map_proba, (1 - plain_map_proba) / 2, (1 - plain_map_proba) / 2]
+    choice = np.random.choice(3, 1, p=probs)[0]
 
-    -with difficulty from 0 to 1: returns Labyrinth or Rocks
-    and gradually increases difficulty of map"""
-    assert -1 <= difficulty <= 1
-
-    if difficulty < 0:
+    if choice == 0:
         MapLoader = TwoTeamMapLoader
         kwargs_range = dict(
-            difficulty=[0., 1.],
+            move_proba=[0., 1.],
+        )        
+
+    elif choice == 1:
+        MapLoader = TwoTeamLabyrinthMapLoader
+        kwargs_range = dict(
+            additional_links_max=[24, 12],
+            additional_links_min=[3, 1],
+            move_proba=[0., 1.],
         )
-        difficulty += 1
+
     else:
-        if random.random() > 0.5:
-            MapLoader = TwoTeamLabyrinthMapLoader
-            kwargs_range = dict(
-                additional_links_max=[24, 12],
-                additional_links_min=[3, 1]
-            )
-        else:
-            MapLoader = TwoTeamRocksMapLoader
-            kwargs_range = dict(
-                rock_spawn_proba=[0.01, 0.15],
-                additional_rock_spawn_proba=[0.0, 0.21]
-            )
+        MapLoader = TwoTeamRocksMapLoader
+        kwargs_range = dict(
+            rock_spawn_proba=[0.01, 0.15],
+            additional_rock_spawn_proba=[0.0, 0.21],
+            move_proba=[0., 1.],
+        )
 
     generation_kwargs = dict()
     for k, v in kwargs_range.items():
@@ -186,30 +192,39 @@ def get_env(n_predators, difficulty, step_limit, render_gif=False):
     base = VersusBotEnv(Realm(
         map_loader=MapLoader(**generation_kwargs),
         playable_teams_num=2,
-        playable_team_size=n_predators,
+        playable_team_size=global_config.n_predators,
         bots={1: ClosestTargetAgent()},
-        step_limit=step_limit
+        step_limit=train_config.max_steps_for_episode
     ))
     return RenderedEnvWrapper(base) if render_gif else base
 
 
-def simulate_episode(model, difficulty, n_predators, cfg, gif_path=None, render_gif=False):
-    env = get_env(n_predators, difficulty, cfg.max_steps_for_episode, render_gif=render_gif)
+def simulate_episode(model, difficulty, gif_path=None):
+    global_config = model.global_config
+    train_config = model.train_config
+
+    render_gif = gif_path is not None
+
+    env = get_env(global_config, train_config, difficulty, render_gif=render_gif)
     state, info = env.reset()
     processed_state = preprocess(state, info)
     done = False
-    r = Reward(n_predators, cfg.reward_params)
+    r = Reward(global_config, train_config)
+    # getting actions here (not as the first step of wile loop) to display q_values in gif before the action is done
+    # actions = model.get_actions(processed_state)    
     text_info = [get_text_info(r, info, env, model)]
 
-    while not done:
-        actions = model.get_actions(processed_state, info)
+    while not done:      
+        prev_model = deepcopy(model) 
+        actions = model.get_actions(processed_state)  
         next_state, done, next_info = env.step(actions)
         next_processed_state = preprocess(next_state, next_info)
-        reward = r(processed_state, info, next_processed_state, next_info)
+        _ = r(processed_state, info, next_processed_state, next_info)
         info, processed_state = next_info, next_processed_state
-        text_info.append(get_text_info(r, next_info, env, model))  # for display
+        text_info.append(get_text_info(r, next_info, env, prev_model))  # for display
+           
 
-    if render_gif and gif_path is not None:
+    if render_gif:
         create_gif(env, gif_path, duration=1., text_info=text_info)
         create_video_from_gif(gif_path)
 
@@ -217,8 +232,8 @@ def simulate_episode(model, difficulty, n_predators, cfg, gif_path=None, render_
     return (info['scores'][0] / sum_) if sum_ > 0 else None
 
 
-def evaluate(model, n_predators, cfg, n_episodes=5):
+def evaluate(model, n_episodes=10):
     results = []
-    for d in np.linspace(0, 1, n_episodes):
-        results.append(simulate_episode(model, d, n_predators, cfg))
+    for d in np.linspace(-0.5, 1, n_episodes):
+        results.append(simulate_episode(model, d))
     return sum(results) / len(results)

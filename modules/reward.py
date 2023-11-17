@@ -278,10 +278,10 @@ def get_kills(info, next_info):
 
 
 class Reward:
-    def __init__(self, n_predators, reward_params, max_dist_change=2):
+    def __init__(self, global_config, train_config, max_dist_change=2):
         self.max_dist_change = max_dist_change
-        self.n_predators = n_predators
-        self.reward_params = reward_params
+        self.n_predators = global_config.n_predators
+        self.reward_params = train_config.reward_params
 
         self.dist_difference = None
         self.kills = None
@@ -355,8 +355,8 @@ class Reward:
 # ===============================================================================
 
 class RewardBasedModel:
-    def __init__(self, reward_params):
-        self.reward_params = reward_params
+    def __init__(self, train_config):
+        self.reward_params = train_config.reward_params        
         self.expected_info = dict()
 
     def get_actions(self, processed_state, info):
