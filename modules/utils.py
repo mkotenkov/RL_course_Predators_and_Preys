@@ -109,17 +109,19 @@ class Logger:
         return self
 
 
-def __smooth_array(arr, window_size):
-    size = len(arr) - 1 if len(arr) < window_size else window_size
-    return np.convolve(arr, np.ones(size) / size, mode='valid')
+def __smooth_array(arr, window_size): 
+    arr = np.array(arr)    
+    window_size = min(window_size, len(arr))
+    pad_size = len(arr) // 2 if window_size == len(arr) else window_size // 2 
+    arr = np.pad(arr, (pad_size, pad_size), 'constant', constant_values=arr.mean())    
+    out = np.convolve(arr, np.ones(window_size) / window_size, mode='valid')
+    return out    
 
 def paint(logger, save_plots=False, reward_window=1000, loss_window=100):
     clear_output(wait=True)
 
-    n = len(logger.data['reward'])
-
-    smoothed_reward_per_step = __smooth_array(logger.data['reward'], min(n, reward_window))
-    smoothed_loss = __smooth_array(logger.data['loss'], min(n, loss_window))
+    smoothed_reward_per_step = __smooth_array(logger.data['reward'], reward_window)
+    smoothed_loss = __smooth_array(logger.data['loss'], loss_window)
 
     plt.figure(figsize=(14, 5))
     plt.subplot(1, 2, 1)
@@ -186,7 +188,7 @@ def get_env(global_config, train_config, difficulty, render_gif=False):
     generation_kwargs = dict()
     for k, v in kwargs_range.items():
         value = v[0] + (v[1] - v[0]) * difficulty
-        value = int(value) if MapLoader == TwoTeamLabyrinthMapLoader else value
+        value = int(value) if (MapLoader == TwoTeamLabyrinthMapLoader and k != 'move_proba') else value
         generation_kwargs[k] = value
 
     base = VersusBotEnv(Realm(
@@ -203,6 +205,8 @@ def simulate_episode(model, difficulty, gif_path=None):
     global_config = model.global_config
     train_config = model.train_config
 
+    model.eval()
+
     render_gif = gif_path is not None
 
     env = get_env(global_config, train_config, difficulty, render_gif=render_gif)
@@ -211,17 +215,16 @@ def simulate_episode(model, difficulty, gif_path=None):
     done = False
     r = Reward(global_config, train_config)
     # getting actions here (not as the first step of wile loop) to display q_values in gif before the action is done
-    # actions = model.get_actions(processed_state)    
+    actions = model.get_actions(processed_state)    
     text_info = [get_text_info(r, info, env, model)]
 
-    while not done:      
-        prev_model = deepcopy(model) 
-        actions = model.get_actions(processed_state)  
+    while not done:              
         next_state, done, next_info = env.step(actions)
         next_processed_state = preprocess(next_state, next_info)
         _ = r(processed_state, info, next_processed_state, next_info)
         info, processed_state = next_info, next_processed_state
-        text_info.append(get_text_info(r, next_info, env, prev_model))  # for display
+        actions = model.get_actions(processed_state)  
+        text_info.append(get_text_info(r, next_info, env, model))  # for display
            
 
     if render_gif:
@@ -232,8 +235,8 @@ def simulate_episode(model, difficulty, gif_path=None):
     return (info['scores'][0] / sum_) if sum_ > 0 else None
 
 
-def evaluate(model, n_episodes=10):
+def evaluate(model, n_episodes=3):    
     results = []
-    for d in np.linspace(-0.5, 1, n_episodes):
+    for d in np.linspace(0, 1, n_episodes):
         results.append(simulate_episode(model, d))
     return sum(results) / len(results)

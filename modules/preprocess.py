@@ -1,13 +1,6 @@
 from queue import Queue
 import numpy as np
-
-# import matplotlib.pyplot as plt
-# from IPython.display import clear_output
-# def paint_mask(mask):
-#     clear_output(wait=True)
-#     plt.imshow(mask, cmap="gray")
-#     plt.axis("off")
-#     plt.show()
+from modules.reward import get_bonus_counts
 
 
 def get_adjacent_cells(x, y, obstacles_mask, distance_mask):
@@ -72,4 +65,6 @@ def preprocess(state, info):
             distance_mask
         ]))
 
-    return np.stack(output)
+    bonus_counts = get_bonus_counts(info)    
+
+    return np.stack(output), bonus_counts

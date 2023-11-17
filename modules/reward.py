@@ -288,8 +288,8 @@ class Reward:
         self.result = None
 
     def __call__(self, processed_state, info, next_processed_state, next_info):
-        bonus_counts = get_bonus_counts(info)
-        next_bonus_counts = get_bonus_counts(next_info)
+        processed_state, bonus_counts = processed_state
+        next_processed_state, next_bonus_counts = next_processed_state
         distances = self.__get_distances(processed_state, bonus_counts)
         next_distances = self.__get_distances(next_processed_state, next_bonus_counts)
 

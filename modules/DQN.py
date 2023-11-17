@@ -10,12 +10,14 @@ Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'done'))
 
 
-class InnerModel(nn.Sequential):
-    def __init__(self, global_config):
+class InnerModel(nn.Module):
+    def __init__(self, global_config, n_neurons_to_process_bonus=16):
+        super().__init__()
         self.n_masks = global_config.n_masks
         self.n_actions = global_config.n_actions
+        self.n_predators = global_config.n_predators
 
-        modules = [
+        self.backbone = nn.Sequential(
             nn.Conv2d(self.n_masks, 4, kernel_size=5, padding=2, stride=1),
             nn.ReLU(),
             nn.Conv2d(4, 4, kernel_size=1, padding=0, stride=1),
@@ -28,12 +30,29 @@ class InnerModel(nn.Sequential):
             nn.ReLU(),
             nn.Conv2d(6, 1, kernel_size=3, padding=1, stride=1),
             nn.ReLU(),
-            nn.MaxPool2d(2),
-            nn.Flatten(),
-            nn.Linear(40 * 40 // 2**6, self.n_actions),
-        ]
+            nn.MaxPool2d(2)
+        )
 
-        super().__init__(*modules)
+        self.bonus_count_processor = nn.Sequential(
+            nn.Linear(1, n_neurons_to_process_bonus),
+            nn.ReLU()
+        )
+
+        self.head = nn.Linear(40 * 40 // 2**6 + n_neurons_to_process_bonus, self.n_actions)
+
+    def forward(self, processed_state):        
+        state, bonus_counts = processed_state
+
+        features_1 = torch.flatten(self.backbone(state), start_dim=1)
+        # print('features_1', features_1.shape)
+        features_2 = self.bonus_count_processor(bonus_counts.resize(self.n_predators, 1))
+        # print('features_2', features_2.shape)
+
+        x = torch.cat((features_1, features_2), dim=1)
+        # print('concat', x.shape)
+        x = self.head(x)
+        # print('out', x.shape)
+        return x
 
 
 class DQN(nn.Module):
@@ -71,38 +90,45 @@ class DQN(nn.Module):
             # expects unbatched input: [self.n_predators, self.n_masks, self.map_size, self.map_size]
             with torch.no_grad():
                 # [self.n_predators, self.n_actions]
-                self.q_values = self.dqn(torch.FloatTensor(processed_state))
+                self.q_values = self.dqn((torch.FloatTensor(processed_state[0]), torch.FloatTensor(processed_state[1])))
                 return self.q_values.argmax(dim=1)
 
     def consume_transition(self, *args):
         self.buffer.append(Transition(*args))
 
     def sample_batch(self):
-        processed_state = torch.empty(self.batch_size, self.n_predators, self.n_masks,
-                                      self.map_size, self.map_size, device=self.device, dtype=torch.float32)
+        processed_state = (torch.empty(self.batch_size, self.n_predators, self.n_masks,
+                                       self.map_size, self.map_size, device=self.device, dtype=torch.float32),
+                           torch.empty(self.batch_size, self.n_predators, device=self.device, dtype=torch.float32))
         actions = torch.empty(self.batch_size, self.n_predators, device=self.device, dtype=torch.int32)
-        next_processed_state = torch.empty(self.batch_size, self.n_predators, self.n_masks,
-                                           self.map_size, self.map_size, device=self.device, dtype=torch.float32)
+        next_processed_state = (torch.empty(self.batch_size, self.n_predators, self.n_masks,
+                                            self.map_size, self.map_size, device=self.device, dtype=torch.float32),
+                                torch.empty(self.batch_size, self.n_predators, device=self.device, dtype=torch.float32))
         reward = torch.empty(self.batch_size, self.n_predators, device=self.device, dtype=torch.float32)
         done = torch.empty(self.batch_size, device=self.device, dtype=torch.bool)
 
         for i, t in enumerate(random.sample(self.buffer, self.batch_size)):
-            processed_state[i] = torch.from_numpy(t.state)
+            processed_state[0][i] = torch.from_numpy(t.state[0])
+            processed_state[1][i] = torch.from_numpy(t.state[1])
             actions[i] = torch.tensor(t.action, device=self.device, dtype=torch.int32)
-            next_processed_state[i] = torch.from_numpy(t.next_state)
+            next_processed_state[0][i] = torch.from_numpy(t.next_state[0])
+            next_processed_state[1][i] = torch.from_numpy(t.next_state[1])
             reward[i] = torch.tensor(t.reward, device=self.device, dtype=torch.float32)
             done[i] = t.done
 
         return processed_state, actions, next_processed_state, reward, done
 
     def update_policy_network(self):
-        # processed_state: [BATCH_SIZE, self.n_predators, self.n_masks, self.map_size, self.map_size]
+        # processed_state: (
+        # [BATCH_SIZE, self.n_predators, self.n_masks, self.map_size, self.map_size],  - masks
+        # [BATCH_SIZE, self.n_predators]  - bonus info
+        # )
         processed_state, actions, next_processed_state, reward, done = self.sample_batch()
 
         q_values = []
         for i in range(self.batch_size):
             # [self.n_predators, self.n_actions] for all actions
-            preds = self.dqn(processed_state[i])
+            preds = self.dqn((processed_state[0][i], processed_state[1][i]))
             q_values.append(preds[torch.arange(self.n_predators), actions[i]])
         # [BATCH_SIZE, self.n_predators] for taken actions
         q_values = torch.stack(q_values)
@@ -111,7 +137,7 @@ class DQN(nn.Module):
         with torch.no_grad():
             for i in range(self.batch_size):
                 # [self.n_predators, self.n_actions] for all actions
-                preds = self.target_dqn(next_processed_state[i])
+                preds = self.target_dqn((next_processed_state[0][i], next_processed_state[1][i]))
                 future_q_values = preds.max(dim=1).values if not done[i] else torch.zeros(self.n_predators)
                 target_q_values.append(reward[i] + self.gamma * future_q_values)
         # [BATCH_SIZE, self.n_predators]
