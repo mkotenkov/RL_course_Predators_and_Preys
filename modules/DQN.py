@@ -12,47 +12,99 @@ Transition = namedtuple('Transition',
 
 class InnerModel(nn.Module):
     def __init__(self, global_config, n_neurons_to_process_bonus=16):
-        super().__init__()
+        super().__init__()        
         self.n_masks = global_config.n_masks
         self.n_actions = global_config.n_actions
-        self.n_predators = global_config.n_predators
+        self.n_predators = global_config.n_predators  
+        self.map_size = global_config.map_size     
 
         self.backbone = nn.Sequential(
             nn.Conv2d(self.n_masks, 4, kernel_size=5, padding=2, stride=1),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(4, 4, kernel_size=1, padding=0, stride=1),
             nn.MaxPool2d(2),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(4, 6, kernel_size=3, padding=1, stride=1),
             nn.MaxPool2d(2),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(6, 6, kernel_size=1, padding=0, stride=1),
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(6, 1, kernel_size=3, padding=1, stride=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2)
+            nn.LeakyReLU(),
+            nn.MaxPool2d(2),
+            nn.Flatten(start_dim=1)
+        )
+
+        self.backbone_3x3 = nn.Sequential(
+            nn.Conv2d(self.n_masks, 32, kernel_size=3, padding=0, stride=1),
+            nn.LeakyReLU(),
+            nn.Flatten(start_dim=1)
+        )
+
+        self.backbone_5x5 = nn.Sequential(
+            nn.Conv2d(self.n_masks, 32, kernel_size=5, padding=0, stride=1),
+            nn.LeakyReLU(),
+            nn.Flatten(start_dim=1)
+        )
+
+        self.backbone_9x9 = nn.Sequential(
+            nn.Conv2d(self.n_masks, 16, kernel_size=5, padding=0, stride=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(16, 32, kernel_size=5, padding=0, stride=1),
+            nn.LeakyReLU(),
+            nn.Flatten(start_dim=1)
+        )
+
+        self.backbone_17x17 = nn.Sequential(
+            nn.Conv2d(self.n_masks, 4, kernel_size=5, padding=0, stride=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(4, 8, kernel_size=5, padding=0, stride=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(8, 16, kernel_size=5, padding=0, stride=1),
+            nn.LeakyReLU(),
+            nn.Conv2d(16, 32, kernel_size=5, padding=0, stride=1),
+            nn.LeakyReLU(),
+            nn.Flatten(start_dim=1)
         )
 
         self.bonus_count_processor = nn.Sequential(
             nn.Linear(1, n_neurons_to_process_bonus),
-            nn.ReLU()
+            nn.ReLU()            
         )
 
-        self.head = nn.Linear(40 * 40 // 2**6 + n_neurons_to_process_bonus, self.n_actions)
+        self.head = nn.Sequential(
+            nn.BatchNorm1d(40 * 40 // 2**6 + n_neurons_to_process_bonus + 128),
+            nn.Linear(40 * 40 // 2**6 + n_neurons_to_process_bonus + 128, self.n_actions),
+        )
 
     def forward(self, processed_state):        
         state, bonus_counts = processed_state
+        
+        state_3x3 = self.get_cut_from_processed_state(state, cut_size=3)
+        state_5x5 = self.get_cut_from_processed_state(state, cut_size=5) 
+        state_9x9 = self.get_cut_from_processed_state(state, cut_size=9) 
+        state_17x17 = self.get_cut_from_processed_state(state, cut_size=17)               
+        
+        features_main = self.backbone(state)
+        features_3x3 = self.backbone_3x3(state_3x3)
+        features_5x5 = self.backbone_5x5(state_5x5)
+        features_9x9 = self.backbone_9x9(state_9x9)
+        features_17x17 = self.backbone_17x17(state_17x17)
 
-        features_1 = torch.flatten(self.backbone(state), start_dim=1)
-        # print('features_1', features_1.shape)
-        features_2 = self.bonus_count_processor(bonus_counts.resize(self.n_predators, 1))
-        # print('features_2', features_2.shape)
+        bonus_features = self.bonus_count_processor(bonus_counts.resize(self.n_predators, 1))        
 
-        x = torch.cat((features_1, features_2), dim=1)
-        # print('concat', x.shape)
-        x = self.head(x)
-        # print('out', x.shape)
+        all_features = torch.cat((features_main, features_3x3, features_5x5, features_9x9, features_17x17, bonus_features), dim=1)                
+        x = self.head(all_features)        
         return x
+    
+    def get_cut_from_processed_state(self, processed_state, cut_size):
+        assert cut_size % 2 == 1
+        assert processed_state.shape == (self.n_predators, self.n_masks, self.map_size, self.map_size)
+
+        start = self.map_size // 2 - cut_size // 2        
+        end = start + cut_size
+
+        return processed_state[..., start:end, start:end]
 
 
 class DQN(nn.Module):
@@ -71,16 +123,17 @@ class DQN(nn.Module):
         self.gamma = train_config.gamma
         self.batch_size = train_config.batch_size
         self.tau = train_config.tau
+        self.steps = train_config.steps
 
         super().__init__()
 
         self.dqn = InnerModel(global_config)
         self.target_dqn = copy.deepcopy(self.dqn)
-
-        self.steps_done = 0
+        
         self.buffer = deque(maxlen=self.buffer_size)
         self.criterion = nn.SmoothL1Loss()
         self.optimizer = torch.optim.AdamW(self.dqn.parameters(), lr=self.learning_rate, amsgrad=True)
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.steps)
         self.q_values = None  # used for display in gif
 
     def get_actions(self, processed_state, random=False):
@@ -146,7 +199,7 @@ class DQN(nn.Module):
         loss = self.criterion(q_values, target_q_values)
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_value_(self.dqn.parameters(), 100)
+        torch.nn.utils.clip_grad_value_(self.dqn.parameters(), 50)
         self.optimizer.step()
 
         return loss.item()

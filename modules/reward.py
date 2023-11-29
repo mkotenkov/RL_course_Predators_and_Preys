@@ -276,6 +276,15 @@ def get_kills(info, next_info):
 
     return prey_kills, enemy_kills, bonus_kills
 
+def check_for_standing_still(info, next_info):
+    out = []
+    for predator_info, next_predator_info in zip(info['predators'], next_info['predators']):
+        out.append(
+            predator_info['x'] == next_predator_info['x'] and
+            predator_info['y'] == next_predator_info['y']
+        )
+    return np.array(out)
+
 
 class Reward:
     def __init__(self, global_config, train_config, max_dist_change=2):
@@ -322,6 +331,10 @@ class Reward:
 
         self.result = self.dist_difference * self.reward_params['w_dist_change'] + \
             np.sum(self.kills * kill_weights, axis=1)
+        
+        # punishment for standing still
+        stands_still = check_for_standing_still(info, next_info)
+        self.result[stands_still == 1] = self.reward_params['standing_still_penalty']
 
         return self.result
 

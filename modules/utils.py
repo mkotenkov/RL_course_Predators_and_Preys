@@ -9,14 +9,13 @@ from modules.preprocess import preprocess
 from modules.reward import Reward
 
 import os
-import random
 import numpy as np
 
 from IPython.display import clear_output
 from dataclasses import dataclass
 from matplotlib import pyplot as plt
 from collections import defaultdict
-from copy import deepcopy
+from tqdm.auto import tqdm
 
 
 @dataclass
@@ -53,11 +52,12 @@ class TrainConfig:
 
 
 class Logger:
-    def __init__(self, config, model, path_to_general_folder='logs'):
+    def __init__(self, train_config, model, path_to_general_folder='logs'):
         self.data = defaultdict(list)
-        self.config = config
+        self.train_config = train_config
         self.model = model
         self.path_to_general_folder = path_to_general_folder
+        self.steps_done = 0
 
         os.makedirs(self.path_to_general_folder, exist_ok=True)
 
@@ -76,12 +76,22 @@ class Logger:
         for k, v in self.data.items():
             np.save(f'{self.curr_subfolder_path}/{k}.npy', np.array(v))
         with open(f'{self.curr_subfolder_path}/config.txt', 'w') as f:
-            f.write(str(self.config))
+            f.write(str(self.train_config))
         with open(f'{self.curr_subfolder_path}/architecture.txt', 'w') as f:
             f.write(str(self.model.dqn))
 
+    def save_model(self):
+        os.makedirs(self.curr_subfolder_path + '/weights', exist_ok=True)
+        path = self.curr_subfolder_path + f'/weights/{self.steps_done//1000}k_steps'
+        path += f'_{round(self.data["score_difference"][-1], 2)}_score' if self.data["score_difference"][-1] is not None else ''
+        path += '.pt'
+        self.model.save(path)
+
+    def step(self):
+        self.steps_done += 1
+
     @classmethod
-    def load(cls, path_to_folder):
+    def load(cls, path_to_folder, model):
         self = cls.__new__(cls)
 
         # restore paths
@@ -95,6 +105,9 @@ class Logger:
                 k = filename.split('.')[0]
                 self.data[k] = np.load(f'{path_to_folder}/{filename}', allow_pickle=True).tolist()
 
+        # restore steps_done
+        self.steps_done = len(self.data[k])
+
         # restore config
         with open(f'{path_to_folder}/config.txt', 'r') as f:
             d = dict()
@@ -104,20 +117,22 @@ class Logger:
                     d[k] = eval(v)
                 except Exception:
                     d[k] = v
-        self.config = TrainConfig(**d)
+        self.train_config = TrainConfig(**d)
+        self.model = model
 
         return self
 
 
-def __smooth_array(arr, window_size): 
-    arr = np.array(arr)    
+def __smooth_array(arr, window_size):
+    arr = np.array(arr)
     window_size = min(window_size, len(arr))
-    pad_size = len(arr) // 2 if window_size == len(arr) else window_size // 2 
-    arr = np.pad(arr, (pad_size, pad_size), 'constant', constant_values=arr.mean())    
+    pad_size = len(arr) // 2 if window_size == len(arr) else window_size // 2
+    arr = np.pad(arr, (pad_size, pad_size), 'constant', constant_values=arr.mean())
     out = np.convolve(arr, np.ones(window_size) / window_size, mode='valid')
-    return out    
+    return out
 
-def paint(logger, save_plots=False, reward_window=1000, loss_window=100):
+
+def paint(logger, save_plots=False, reward_window=1200, loss_window=100):
     clear_output(wait=True)
 
     smoothed_reward_per_step = __smooth_array(logger.data['reward'], reward_window)
@@ -139,6 +154,7 @@ def paint(logger, save_plots=False, reward_window=1000, loss_window=100):
     plt.grid()
 
     if save_plots:
+        print('Saving plots...')  
         plt.savefig(logger.curr_subfolder_path + '/reward_loss.png')
 
     plt.show()
@@ -156,10 +172,11 @@ def paint(logger, save_plots=False, reward_window=1000, loss_window=100):
 
     plt.show()
 
+
 def get_env(global_config, train_config, difficulty, render_gif=False):
     assert 0 <= difficulty <= 1
-
-    plain_map_proba = 1 - difficulty if difficulty > 0.15 else 1
+ 
+    plain_map_proba = np.exp(-difficulty * 4)
     probs = [plain_map_proba, (1 - plain_map_proba) / 2, (1 - plain_map_proba) / 2]
     choice = np.random.choice(3, 1, p=probs)[0]
 
@@ -167,7 +184,7 @@ def get_env(global_config, train_config, difficulty, render_gif=False):
         MapLoader = TwoTeamMapLoader
         kwargs_range = dict(
             move_proba=[0., 1.],
-        )        
+        )
 
     elif choice == 1:
         MapLoader = TwoTeamLabyrinthMapLoader
@@ -215,17 +232,16 @@ def simulate_episode(model, difficulty, gif_path=None):
     done = False
     r = Reward(global_config, train_config)
     # getting actions here (not as the first step of wile loop) to display q_values in gif before the action is done
-    actions = model.get_actions(processed_state)    
+    actions = model.get_actions(processed_state)
     text_info = [get_text_info(r, info, env, model)]
 
-    while not done:              
+    while not done:
         next_state, done, next_info = env.step(actions)
         next_processed_state = preprocess(next_state, next_info)
         _ = r(processed_state, info, next_processed_state, next_info)
         info, processed_state = next_info, next_processed_state
-        actions = model.get_actions(processed_state)  
+        actions = model.get_actions(processed_state)
         text_info.append(get_text_info(r, next_info, env, model))  # for display
-           
 
     if render_gif:
         create_gif(env, gif_path, duration=1., text_info=text_info)
@@ -235,8 +251,8 @@ def simulate_episode(model, difficulty, gif_path=None):
     return (info['scores'][0] / sum_) if sum_ > 0 else None
 
 
-def evaluate(model, n_episodes=3):    
+def evaluate(model, n_episodes=3):
     results = []
-    for d in np.linspace(0, 1, n_episodes):
+    for d in tqdm(np.linspace(0, 1, n_episodes), desc='Evaluation'):
         results.append(simulate_episode(model, d))
     return sum(results) / len(results)
