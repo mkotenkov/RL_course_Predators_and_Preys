@@ -1,7 +1,7 @@
 # Overview
-This repository presents my solution to the Preys and Predators problem. (Environment description can be found in "ENV_DESC.md".)
+This repository presents my solution to the RL game "Predators and Preys". (Environment description can be found in "ENV_DESC.md".)
 
-Here I propose reward system, model architecture and the algorithm to train Deep Q-Network.
+I propose reward system, model architecture and the algorithm to train Deep Q-Network.
 
 This model took **first place** in the competition among the course participants.
 
