@@ -35,7 +35,7 @@ While training, the difficulty of generated maps gradually increases. Therefore,
 
 # Demo
 <img src="images/demo_labyrinth.gif" width="800px"></img>
-
+---
 <img src="images/demo_rocks.gif" width="800px"></img>
 
 # Competition scores
