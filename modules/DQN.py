@@ -11,7 +11,7 @@ Transition = namedtuple('Transition',
 
 
 class InnerModel(nn.Module):
-    def __init__(self, global_config, n_neurons_to_process_bonus=16):
+    def __init__(self, global_config, n_neurons_to_process_bonus=32):
         super().__init__()        
         self.n_masks = global_config.n_masks
         self.n_actions = global_config.n_actions
@@ -69,11 +69,10 @@ class InnerModel(nn.Module):
 
         self.bonus_count_processor = nn.Sequential(
             nn.Linear(1, n_neurons_to_process_bonus),
-            nn.ReLU()            
+            nn.LeakyReLU()            
         )
 
-        self.head = nn.Sequential(
-            nn.BatchNorm1d(40 * 40 // 2**6 + n_neurons_to_process_bonus + 128),
+        self.head = nn.Sequential(            
             nn.Linear(40 * 40 // 2**6 + n_neurons_to_process_bonus + 128, self.n_actions),
         )
 
